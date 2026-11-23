@@ -1387,6 +1387,31 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     ),
   );
 
+  it.effect(
+    "excludes generated resources/server-compile-cache files from the Windows file-count budget",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
+          const cacheDir = path.join(fixture.packagedAppDir, "resources", "server-compile-cache");
+          yield* fs.makeDirectory(cacheDir, { recursive: true });
+          for (let i = 0; i < 30; i += 1) {
+            yield* fs.writeFileString(path.join(cacheDir, `chunk-${String(i)}`), "cached");
+          }
+          const result = yield* validateWindowsPackagedPayload({
+            stageDistDir: fixture.stageDistDir,
+            appExecutableName: fixture.appExecutableName,
+            targetArch: "x64",
+            appVersion: WINDOWS_PAYLOAD_FIXTURE_VERSION,
+            fileLimit: 10,
+          });
+          assert.isAtMost(result.fileCount, 10);
+        }),
+      ).pipe(Effect.provideService(HostProcess.Platform, "linux")),
+  );
+
   it.effect("rejects a sidecar whose extracted server bundle cannot resolve", () =>
     Effect.scoped(
       Effect.gen(function* () {
