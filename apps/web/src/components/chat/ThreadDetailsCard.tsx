@@ -26,6 +26,8 @@ export function ThreadDetailsCard({
   handle,
   contentKey,
   onContextMenu,
+  belowCard,
+  popoverFooter,
   children,
 }: {
   threadRef: ScopedThreadRef;
@@ -34,6 +36,10 @@ export function ThreadDetailsCard({
   /** Changes when the set of rendered items changes, so cached heights are measured again. */
   contentKey: string;
   onContextMenu?: MouseEventHandler<HTMLDivElement>;
+  /** Optional companion card stacked below the details card in inline mode (shares the right column). */
+  belowCard?: ReactNode | undefined;
+  /** Optional compact footer rendered at the bottom of the popover when collapsed out of inline mode. */
+  popoverFooter?: ReactNode | undefined;
   children: (density: "full" | "compact" | "essential") => ReactNode;
 }) {
   const gt = useGT();
@@ -56,8 +62,24 @@ export function ThreadDetailsCard({
   });
   const contentHeights =
     measurements.key === measurementKey ? measurements.heights : { full: 0, compact: 0 };
+  const [belowElement, setBelowElement] = useState<HTMLDivElement | null>(null);
+  const [belowHeight, setBelowHeight] = useState(0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures optional companion card height via ResizeObserver so density and preview avoidance stay accurate
+  useLayoutEffect(() => {
+    if (!belowElement || mode !== "inline" || !belowCard) return;
+    const measureBelow = () => {
+      const next = belowElement.offsetHeight;
+      setBelowHeight((current) => (current === next ? current : next));
+    };
+    measureBelow();
+    return observeResize(belowElement, measureBelow);
+  }, [belowElement, mode, belowCard]);
+
   const height = placement?.height ?? Math.max(0, (canvas?.container.height ?? 0) - 52);
-  const density = resolveThreadDetailsCardDensity(height, contentHeights);
+  const companionReserve =
+    mode === "inline" && belowCard && belowElement && belowHeight > 0 ? belowHeight + 10 : 0;
+  const primaryHeight = companionReserve > 0 ? Math.max(160, height - companionReserve) : height;
+  const density = resolveThreadDetailsCardDensity(primaryHeight, contentHeights);
   const measureDetailsCard = canvas?.measureDetailsCard;
   const cardWidth = preferredPlacement?.width;
   // The mode derives from canvas measurements, the preview frame and the
@@ -99,7 +121,7 @@ export function ThreadDetailsCard({
         measureDetailsCard?.({
           threadRef: { environmentId, threadId },
           width: cardWidth,
-          fullContentHeight: next,
+          fullContentHeight: next + companionReserve,
         });
       }
     };
@@ -113,21 +135,25 @@ export function ThreadDetailsCard({
     measureDetailsCard,
     environmentId,
     threadId,
+    companionReserve,
   ]);
+  const hasInlineBelow = mode === "inline" && Boolean(belowCard);
   const card = (
     <div
       className={cn(
         "dropdown-glass isolate contain-paint grid max-h-full grid-rows-[minmax(0,1fr)] overflow-hidden rounded-2xl",
+        hasInlineBelow && "min-h-0 shrink",
         mode === "popover" &&
           "max-h-[min(calc(100dvh-6.5rem),calc(var(--available-height,100dvh)-1rem))]",
       )}
-      style={placement ? { maxHeight: height } : undefined}
+      style={placement && !hasInlineBelow ? { maxHeight: height } : undefined}
       onContextMenu={onContextMenu}
       data-thread-details-card
     >
       <ScrollArea scrollFade className="min-h-0">
         <div ref={setContentElement}>{children(density)}</div>
       </ScrollArea>
+      {mode === "popover" ? popoverFooter : null}
     </div>
   );
   return (
@@ -155,6 +181,7 @@ export function ThreadDetailsCard({
           // Skip the return transition to avoid overlapping the rising preview.
           className={cn(
             "absolute z-20",
+            belowCard && "flex flex-col gap-2.5 overflow-hidden",
             topInset > 0 && "transition-[top] duration-150 ease-out motion-reduce:transition-none",
           )}
           style={{
@@ -167,6 +194,11 @@ export function ThreadDetailsCard({
           data-thread-details-panel="inline"
         >
           {card}
+          {belowCard ? (
+            <div ref={setBelowElement} className="flex min-h-0 flex-col">
+              {belowCard}
+            </div>
+          ) : null}
         </aside>
       ) : null}
       {/* Rendered in both modes: base-ui keeps a popup that unmounts mid-open

@@ -2707,6 +2707,144 @@ describe("OrchestratorMcpService provider resolution", () => {
     }),
   );
 
+  it.effect(
+    "delegates locally to another project's existing worktree and rejects foreign paths",
+    () =>
+      Effect.gen(function* () {
+        const targetProjectId = ProjectId.make("project:business-repo");
+        const targetWorkspaceRoot = "/work/business-repo";
+        const targetWorktreePath = "/work/.t3/worktrees/business-repo/DEMO-123";
+        const codexInstanceId = ProviderInstanceId.make("codex");
+        const model = "gpt-5.4";
+        const codex: ServerProvider = {
+          ...providerSnapshot({
+            instanceId: codexInstanceId,
+            driver: ProviderDriverKind.make("codex"),
+          }),
+          models: [{ slug: model, name: "GPT-5.4", isCustom: false, capabilities: null }],
+        };
+        const commands: Array<unknown> = [];
+        const preparedRuns: Array<{ threadId: ThreadId; runId: RunId }> = [];
+        const childRunId = RunId.make("run:cross-project-child");
+        const task = {
+          id: taskId,
+          threadId: parentThreadId,
+          origin: "app_owned",
+          childThreadId,
+          providerInstanceId: codexInstanceId,
+          model,
+          status: "running",
+          result: null,
+        };
+        const dependencies = Layer.mergeAll(
+          NodeServices.layer,
+          NodeCrypto.layer,
+          ServerSettings.layerTest(),
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            hasReceipt: () => Effect.succeed(false),
+            isProviderInstanceEnabledForProject: () => Effect.succeed(true),
+            getThreadRecords: (threadId) =>
+              Effect.succeed(
+                threadId === parentThreadId
+                  ? parentProjection(commands.length > 0 ? [task] : [])
+                  : childProjection,
+              ),
+            dispatch: (command) =>
+              Effect.sync(() => {
+                commands.push(command);
+                return {
+                  sequence: 1,
+                  storedEvents: [
+                    { event: { type: "subagent.updated", payload: task } },
+                    {
+                      event: {
+                        type: "run.created",
+                        threadId: childThreadId,
+                        payload: {
+                          id: childRunId,
+                          workspacePreparation: {
+                            type: "existing_worktree",
+                            worktreePath: targetWorktreePath,
+                          },
+                        },
+                      },
+                    },
+                  ],
+                } as never;
+              }),
+          }),
+          Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+            prepareRun: (input) => {
+              preparedRuns.push({ threadId: input.threadId, runId: input.runId });
+              return Effect.void;
+            },
+          }),
+          Layer.mock(GitVcsDriver.GitVcsDriver)({
+            listWorktreePaths: (cwd) =>
+              Effect.succeed(
+                cwd === targetWorkspaceRoot ? [targetWorkspaceRoot, targetWorktreePath] : [],
+              ),
+          }),
+          Layer.mock(ProviderRegistry.ProviderRegistry)({
+            getProviders: Effect.succeed([codex]),
+          }),
+          adapterRegistryLayer([codexInstanceId]),
+          Layer.mock(ProjectService.ProjectService)({
+            getById: (id) =>
+              Effect.succeed(
+                id === targetProjectId
+                  ? Option.some({
+                      id: targetProjectId,
+                      title: "business-repo",
+                      workspaceRoot: targetWorkspaceRoot,
+                    } as never)
+                  : Option.none(),
+              ),
+          }),
+          Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+          Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+        );
+        yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const rejected = yield* service
+            .delegateTask(scope, {
+              task: "Edit outside project.",
+              target: {
+                providerInstanceId: codexInstanceId,
+                model,
+                projectId: targetProjectId,
+                worktreePath: "/work/unrelated-repo",
+              },
+              mode: "async",
+              clientRequestId: "cross-project-invalid",
+            })
+            .pipe(Effect.flip);
+          assert.equal(rejected.code, "invalid_request");
+          assert.deepEqual(commands, []);
+
+          yield* service.delegateTask(scope, {
+            task: "Implement DEMO-123.",
+            target: {
+              providerInstanceId: codexInstanceId,
+              model,
+              projectId: targetProjectId,
+              worktreePath: targetWorktreePath,
+            },
+            mode: "async",
+            clientRequestId: "cross-project-valid",
+          });
+          assert.equal(commands.length, 1);
+          assert.equal((commands[0] as { projectId?: unknown }).projectId, targetProjectId);
+          assert.deepEqual((commands[0] as { workspaceStrategy?: unknown }).workspaceStrategy, {
+            type: "existing_worktree",
+            worktreePath: targetWorktreePath,
+          });
+          assert.deepEqual(preparedRuns, [{ threadId: childThreadId, runId: childRunId }]);
+        }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
+      }),
+  );
+
   it.effect("rejects delegation to a provider without a registered adapter", () =>
     Effect.gen(function* () {
       const forkOnlyInstanceId = ProviderInstanceId.make("forkOnly");

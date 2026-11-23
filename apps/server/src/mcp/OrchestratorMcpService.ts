@@ -1,3 +1,4 @@
+import * as NodeFSP from "node:fs/promises";
 import {
   CommandId,
   type RunId,
@@ -1664,6 +1665,7 @@ const make = Effect.gen(function* () {
     readonly parent: Pick<OrchestrationV2ThreadProjection, "thread">;
     readonly target: OrchestratorMcpTarget | undefined;
     readonly providers: ReadonlyArray<ServerProvider>;
+    readonly projectId?: ProjectId;
     /** Receipt replays bypass current settings because they start no work. Dispatch must reuse the checked command ID. */
     readonly skipProjectEnablementFilter?: boolean;
   }): Effect.fn.Return<ResolvedTarget, OrchestratorMcpFailure> {
@@ -1698,7 +1700,7 @@ const make = Effect.gen(function* () {
         const enabledForProject =
           input.skipProjectEnablementFilter === true ||
           (yield* threadManagement.isProviderInstanceEnabledForProject({
-            projectId: input.parent.thread.projectId,
+            projectId: input.projectId ?? input.parent.thread.projectId,
             instanceId: candidate.instanceId,
           }));
         if (enabledForProject) {
@@ -2840,13 +2842,13 @@ const make = Effect.gen(function* () {
           : readTask(scope, taskId, false, true);
       }
       const { scope, parent } = yield* loadThreadCaller(callerScope, "delegate_task");
-      if (
-        input.target?.projectId !== undefined &&
-        input.target.projectId !== parent.thread.projectId
-      ) {
+      const targetProjectId = input.target?.projectId ?? parent.thread.projectId;
+      const crossProject = targetProjectId !== parent.thread.projectId;
+      const requestedWorktreePath = input.target?.worktreePath;
+      if (requestedWorktreePath !== undefined && input.isolation === "worktree") {
         return yield* failure(
           "invalid_request",
-          "A local task runs in this thread's project. Omit target.projectId, or pass target.environmentId to run it in that environment's project.",
+          "Cannot combine target.worktreePath with isolation 'worktree'. Omit isolation or use 'shared' to run in an existing worktree.",
         );
       }
       const parentRun =
@@ -2870,11 +2872,100 @@ const make = Effect.gen(function* () {
         operation: "delegate-task",
       });
       const isRetryOfAcceptedDelegation = yield* threadManagement.hasReceipt(commandId);
+      let workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy | undefined;
+      let targetCwd: string | undefined;
+      if (crossProject || requestedWorktreePath !== undefined) {
+        const targetProject = yield* requireProject(targetProjectId);
+        if (requestedWorktreePath !== undefined) {
+          if (!isRetryOfAcceptedDelegation) {
+            const realPathOf = (path: string) =>
+              Effect.tryPromise(() => NodeFSP.realpath(path)).pipe(
+                Effect.orElseSucceed(() => path),
+              );
+            const worktrees = yield* gitDriver.listWorktreePaths(targetProject.workspaceRoot).pipe(
+              Effect.flatMap((paths) => Effect.forEach(paths, realPathOf)),
+              Effect.orElseSucceed((): ReadonlyArray<string> => []),
+            );
+            const canonicalRequested = yield* realPathOf(requestedWorktreePath);
+            if (!worktrees.includes(canonicalRequested)) {
+              return yield* failure(
+                "invalid_request",
+                `worktreePath "${requestedWorktreePath}" is not one of project "${targetProject.title}"'s git worktrees.`,
+              );
+            }
+          }
+          workspaceStrategy = {
+            type: "existing_worktree",
+            worktreePath: requestedWorktreePath,
+          };
+          targetCwd = requestedWorktreePath;
+        } else {
+          if (input.isolation === "worktree" && !isRetryOfAcceptedDelegation) {
+            const base = yield* gitDriver
+              .resolveCommit({
+                cwd: targetProject.workspaceRoot,
+                revision: "HEAD",
+              })
+              .pipe(
+                Effect.mapError(() =>
+                  failure(
+                    "invalid_request",
+                    `Unable to resolve HEAD commit in project "${targetProject.title}".`,
+                  ),
+                ),
+              );
+            workspaceStrategy = {
+              type: "worktree",
+              baseRef: base.commitSha,
+              startFromOrigin: false,
+            };
+          } else if (input.isolation !== "worktree") {
+            workspaceStrategy = { type: "root" };
+          }
+          targetCwd = targetProject.workspaceRoot;
+        }
+      } else {
+        targetCwd = yield* parentWorkspaceCwd(parent);
+        if (input.isolation === "worktree" && !isRetryOfAcceptedDelegation) {
+          const project = yield* requireProject(parent.thread.projectId);
+          const base = yield* gitDriver
+            .resolveCommit({
+              cwd: parent.thread.worktreePath ?? project.workspaceRoot,
+              revision: "HEAD",
+            })
+            .pipe(
+              Effect.mapError(() =>
+                failure("invalid_request", "Unable to resolve the parent checkout commit."),
+              ),
+            );
+          // Launch preparation creates the worktree from the project root, so a
+          // parent checkout in another repository (such as a Git folder inside
+          // Scratch) would hand it a commit it cannot find.
+          if (parent.thread.worktreePath !== null) {
+            yield* gitDriver
+              .resolveCommit({ cwd: project.workspaceRoot, revision: base.commitSha })
+              .pipe(
+                Effect.mapError(() =>
+                  failure(
+                    "invalid_request",
+                    `Isolation "worktree" creates the child checkout in project "${project.title}" (${project.workspaceRoot}), which does not contain the parent checkout's commit. Use isolation "shared" to work in the parent's checkout.`,
+                  ),
+                ),
+              );
+          }
+          workspaceStrategy = {
+            type: "worktree",
+            baseRef: base.commitSha,
+            startFromOrigin: false,
+          };
+        }
+      }
       const target = yield* resolveTargetRechecking({
         parent,
         target: input.target,
         providers,
-        cwd: yield* parentWorkspaceCwd(parent),
+        projectId: targetProjectId,
+        cwd: targetCwd,
         skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
       });
       const runtimeMode = yield* resolveRuntimeMode(
@@ -2886,36 +2977,6 @@ const make = Effect.gen(function* () {
         parent.thread.interactionMode,
         input.interactionMode,
       );
-      let workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy | undefined;
-      if (input.isolation === "worktree" && !isRetryOfAcceptedDelegation) {
-        const project = yield* requireProject(parent.thread.projectId);
-        const base = yield* gitDriver
-          .resolveCommit({
-            cwd: parent.thread.worktreePath ?? project.workspaceRoot,
-            revision: "HEAD",
-          })
-          .pipe(
-            Effect.mapError(() =>
-              failure("invalid_request", "Unable to resolve the parent checkout commit."),
-            ),
-          );
-        // Launch preparation creates the worktree from the project root, so a
-        // parent checkout in another repository (such as a Git folder inside
-        // Scratch) would hand it a commit it cannot find.
-        if (parent.thread.worktreePath !== null) {
-          yield* gitDriver
-            .resolveCommit({ cwd: project.workspaceRoot, revision: base.commitSha })
-            .pipe(
-              Effect.mapError(() =>
-                failure(
-                  "invalid_request",
-                  `Isolation "worktree" creates the child checkout in project "${project.title}" (${project.workspaceRoot}), which does not contain the parent checkout's commit. Use isolation "shared" to work in the parent's checkout.`,
-                ),
-              ),
-            );
-        }
-        workspaceStrategy = { type: "worktree", baseRef: base.commitSha, startFromOrigin: false };
-      }
       const parentNodeId = parentRun.rootNodeId;
       // The command commits the child's preparing run, which only this call
       // prepares, so a caller that goes away must not stop it in between.
@@ -2933,6 +2994,7 @@ const make = Effect.gen(function* () {
               parentThreadId: scope.thread.threadId,
               parentRunId: parentRun.id,
               parentNodeId,
+              ...(crossProject ? { projectId: targetProjectId } : {}),
               task: taskPrompt(input),
               ...(input.title === undefined ? {} : { title: input.title }),
               modelSelection: target.modelSelection,

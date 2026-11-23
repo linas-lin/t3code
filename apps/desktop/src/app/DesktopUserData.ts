@@ -4,6 +4,13 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
+import {
+  CURRENT_DESKTOP_VARIANT,
+  isCtDesktopVariant,
+  resolveProductionUserDataDirName,
+  type DesktopVariant,
+} from "./DesktopVariant.ts";
+
 export class DesktopUserDataInitializationError extends Schema.TaggedError<DesktopUserDataInitializationError>()(
   "DesktopUserDataInitializationError",
   {
@@ -36,12 +43,17 @@ export const resolveUserDataPath = Effect.fn("desktop.userData.resolveUserDataPa
     readonly appDataDirectory: string;
     readonly isDevelopment: boolean;
     readonly platform: NodeJS.Platform;
+    readonly variant?: DesktopVariant;
   }) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
+    const variant = input.variant ?? CURRENT_DESKTOP_VARIANT;
+    if (!input.isDevelopment && isCtDesktopVariant(variant)) {
+      return path.join(input.appDataDirectory, resolveProductionUserDataDirName(variant));
+    }
     const names = input.isDevelopment
       ? { current: "t3code-dev", legacy: "T3 Code (Dev)" }
-      : { current: "t3code-v2", legacy: "T3 Code (Alpha)" };
+      : { current: resolveProductionUserDataDirName(variant), legacy: "T3 Code (Alpha)" };
     const destinationPath = path.join(input.appDataDirectory, names.current);
     const legacyPath = path.join(input.appDataDirectory, names.legacy);
     const inspect = (resourcePath: string) =>

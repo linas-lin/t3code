@@ -292,6 +292,37 @@ function registerThreadUndoCommands(
   };
 }
 
+function registerCtStudioToggleCommand(router: AnyRouter): () => void {
+  return registerCommands(
+    {},
+    {
+      capture: true,
+      onKeyDown: (event) => {
+        if (event.repeat || event.isComposing) return false;
+        const mod = isMacPlatform(navigator.platform)
+          ? event.metaKey && !event.ctrlKey
+          : event.ctrlKey && !event.metaKey;
+        if (!mod || !event.shiftKey || event.altKey || event.key.toLowerCase() !== "j") {
+          return false;
+        }
+        if (isCommandPaletteOpen() || isModelPickerOpen()) return false;
+        event.preventDefault();
+        event.stopPropagation();
+        if (router.state.location.pathname === "/ct-studio") {
+          if (router.state.location.state.__TSR_index !== 0) {
+            window.history.back();
+          } else {
+            void router.navigate({ to: "/" });
+          }
+        } else {
+          void router.navigate({ to: "/ct-studio", search: {} });
+        }
+        return true;
+      },
+    },
+  );
+}
+
 /** Keyboard and menu commands that live as long as the app shell. */
 function registerAppShellCommands(router: AnyRouter, shellElement: Element): () => void {
   // The provider mirrors the visibility it renders onto its wrapper, so the
@@ -304,6 +335,7 @@ function registerAppShellCommands(router: AnyRouter, shellElement: Element): () 
     registerNavigationHistoryCommands(router),
     registerWorkspaceFocusCommands(router),
     registerPullRequestsEscapeCommand(router),
+    registerCtStudioToggleCommand(router),
     registerMenuAction("open-settings", () => {
       if (!/^\/settings(\/|$)/.test(router.state.location.pathname))
         void router.navigate({ to: "/settings" });

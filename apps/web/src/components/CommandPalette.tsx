@@ -70,6 +70,7 @@ import {
   FolderGit2Icon,
   FolderIcon,
   FolderPlusIcon,
+  LayoutGridIcon,
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
@@ -1720,6 +1721,17 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+
+  actionItems.push({
+    kind: "action",
+    value: "action:ct-studio",
+    searchTerms: ["ct-studio", "ct studio", "studio", "kanban", "jira", "inbox", "workbench"],
+    title: gt("Open CT Studio"),
+    icon: <LayoutGridIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/ct-studio", search: {} });
+    },
+  });
 
   actionItems.push({
     kind: "action",

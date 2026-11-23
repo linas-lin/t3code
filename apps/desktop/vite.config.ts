@@ -20,10 +20,12 @@ const devElectronCommand =
   NodeOS.platform() === "win32"
     ? "node scripts/dev-electron.mjs"
     : "exec node scripts/dev-electron.mjs";
+const desktopBuildVariant = process.env.T3CODE_DESKTOP_VARIANT?.trim() === "ct" ? "ct" : "standard";
 const publicConfigDefine = {
   __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: JSON.stringify(
     repoEnv.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() ?? "",
   ),
+  __T3CODE_DESKTOP_VARIANT__: JSON.stringify(desktopBuildVariant),
 };
 
 export default defineConfig({

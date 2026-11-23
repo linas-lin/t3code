@@ -122,7 +122,13 @@ export const OrchestratorMcpTarget = Schema.Struct({
   projectId: Schema.optional(
     ProjectId.annotate({
       description:
-        "With `environmentId`: its project to run in. Default: the one with this project's repository.",
+        "Target project id (local or in `environmentId`). Default: this thread's project (or matching repository when `environmentId` is set).",
+    }),
+  ),
+  worktreePath: Schema.optional(
+    TrimmedNonEmptyString.annotate({
+      description:
+        "Existing git worktree path inside the target project (or this thread's project). Runs the child directly in that worktree.",
     }),
   ),
 });

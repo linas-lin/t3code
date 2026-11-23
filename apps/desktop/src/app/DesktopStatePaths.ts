@@ -1,5 +1,11 @@
 import * as Option from "effect/Option";
 
+import {
+  CURRENT_DESKTOP_VARIANT,
+  resolveDefaultBaseDirName,
+  type DesktopVariant,
+} from "./DesktopVariant.ts";
+
 export type JoinPath = (first: string, ...segments: string[]) => string;
 
 function normalizeConfiguredBaseDir(t3Home: Option.Option<string>): Option.Option<string> {
@@ -14,9 +20,13 @@ export function resolveDesktopBaseDir(input: {
   readonly homeDirectory: string;
   readonly joinPath: JoinPath;
   readonly t3Home: Option.Option<string>;
+  readonly variant?: DesktopVariant;
 }): string {
   return Option.getOrElse(normalizeConfiguredBaseDir(input.t3Home), () =>
-    input.joinPath(input.homeDirectory, ".t3"),
+    input.joinPath(
+      input.homeDirectory,
+      resolveDefaultBaseDirName(input.variant ?? CURRENT_DESKTOP_VARIANT),
+    ),
   );
 }
 

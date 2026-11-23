@@ -1810,6 +1810,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
             platform: Option.some(platform),
             target: Option.none(),
             arch: Option.some("universal"),
+            variant: Option.none(),
             buildVersion: Option.none(),
             outputDir: Option.none(),
             skipBuild: Option.none(),
@@ -1834,6 +1835,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         platform: Option.some("mac"),
         target: Option.none(),
         arch: Option.some("arm64"),
+        variant: Option.none(),
         buildVersion: Option.none(),
         outputDir: Option.some("release-test"),
         skipBuild: Option.some(false),
@@ -1859,12 +1861,64 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         ),
       );
 
+      assert.equal(resolved.variant, "standard");
       assert.equal(resolved.skipBuild, false);
       assert.equal(resolved.keepStage, false);
       assert.equal(resolved.signed, false);
       assert.equal(resolved.verbose, false);
       assert.equal(resolved.mockUpdates, false);
     }),
+  );
+
+  it.effect("isolates bundle identity, scheme, and update feed for the ct variant", () =>
+    Effect.gen(function* () {
+      const macConfig = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.1.11",
+        false,
+        false,
+        undefined,
+        undefined,
+        false,
+        "arm64",
+        "ct",
+      );
+      assert.equal(macConfig.appId, "com.ct.t3code");
+      assert.equal(macConfig.productName, "T3 Code (CT)");
+      assert.equal(macConfig.artifactName, "T3-Code-CT-${version}-${arch}.${ext}");
+      assert.isNull(macConfig.publish);
+      assert.deepStrictEqual((macConfig.mac as { protocols: unknown }).protocols, [
+        { name: "T3 Code (CT)", schemes: ["t3code-ct"] },
+      ]);
+      assert.equal((macConfig.dmg as { title: string }).title, "T3 Code (CT) 0.1.11 Installer");
+
+      const linuxConfig = yield* createBuildConfig(
+        "linux",
+        "AppImage",
+        "0.1.11",
+        false,
+        false,
+        undefined,
+        undefined,
+        false,
+        "x64",
+        "ct",
+      );
+      assert.equal(linuxConfig.appId, "com.ct.t3code");
+      assert.isNull(linuxConfig.publish);
+      assert.nestedPropertyVal(linuxConfig, "linux.executableName", "t3code-ct");
+      assert.nestedPropertyVal(linuxConfig, "linux.desktop.entry.StartupWMClass", "com.ct.T3Code");
+      assert.deepStrictEqual((linuxConfig.linux as { protocols: unknown }).protocols, [
+        { name: "T3 Code (CT)", schemes: ["t3code-ct"] },
+      ]);
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "pingdotgg/t3code" } }),
+        ),
+      ),
+    ),
   );
 });
 

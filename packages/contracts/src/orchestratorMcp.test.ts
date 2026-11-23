@@ -18,6 +18,8 @@ describe("orchestrator MCP contracts", () => {
       target: {
         providerInstanceId: "claudeAgent",
         model: "claude-sonnet-4-6",
+        projectId: "project-target-1",
+        worktreePath: "/tmp/worktrees/feature-1",
       },
       mode: "wait",
       timeoutMs: 5_000,
@@ -47,6 +49,8 @@ describe("orchestrator MCP contracts", () => {
     });
 
     expect(request.target?.providerInstanceId).toBe("claudeAgent");
+    expect(request.target?.projectId).toBe("project-target-1");
+    expect(request.target?.worktreePath).toBe("/tmp/worktrees/feature-1");
     expect(result.status).toBe("completed");
     expect(result.summary).toBe("Workspace inspected.");
     expect(result.pendingApproval).toBeNull();

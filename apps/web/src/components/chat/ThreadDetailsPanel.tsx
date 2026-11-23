@@ -43,6 +43,8 @@ import { ThreadDetailsThreadPrRows } from "./ThreadDetailsPrRows";
 import { cn } from "../../lib/utils";
 import { SlidersHorizontalIcon } from "lucide-react";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
+import { ThreadCtStudioCard, ThreadCtStudioPopoverRow } from "../ctStudio/ThreadCtStudioCard";
+import { useCtStudioStore } from "../ctStudio/ctStudioStore";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
   THREAD_DETAILS_PANEL_LABEL_CLASS,
@@ -97,6 +99,7 @@ interface ThreadDetailsPanelProps extends Pick<
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const visible = useClientSettings(resolveThreadDetailsVisibility);
+  const ctStudioConnected = useCtStudioStore((state) => state.connected);
   const gt = useGT();
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const fileScripts = useT3ProjectFileScripts(
@@ -158,6 +161,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
       threadRef={{ environmentId: props.environmentId, threadId: props.threadId }}
       anchor={props.anchor}
       handle={props.handle}
+      belowCard={ctStudioConnected ? <ThreadCtStudioCard threadRef={activeThreadRef} /> : undefined}
+      popoverFooter={
+        ctStudioConnected ? <ThreadCtStudioPopoverRow threadRef={activeThreadRef} /> : undefined
+      }
       contentKey={THREAD_DETAILS_ITEMS.filter((item) => visible[item.id])
         .map((item) => item.id)
         .join(",")}

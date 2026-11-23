@@ -14,6 +14,7 @@ import {
   resolveDesktopStateDir,
   type JoinPath,
 } from "./DesktopStatePaths.ts";
+import { resolveLinuxDesktopEntryNameForVariant } from "./DesktopVariant.ts";
 
 interface EarlyDesktopSettingsInput {
   readonly env: NodeJS.ProcessEnv;
@@ -31,7 +32,7 @@ export interface EarlyLinuxElectronOptions {
 }
 
 export const resolveLinuxDesktopEntryName = (isDevelopment: boolean): string =>
-  isDevelopment ? "com.t3tools.T3Code.Development.desktop" : "com.t3tools.T3Code.desktop";
+  resolveLinuxDesktopEntryNameForVariant(isDevelopment);
 
 const trimNonEmpty = (value: string | undefined): string | null => {
   const trimmed = value?.trim();

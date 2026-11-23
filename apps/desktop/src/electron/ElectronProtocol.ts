@@ -12,12 +12,21 @@ import * as Scope from "effect/Scope";
 
 import * as Electron from "electron";
 
+import {
+  CURRENT_DESKTOP_VARIANT,
+  resolveProductionDesktopScheme,
+  type DesktopVariant,
+} from "../app/DesktopVariant.ts";
+
 export const DESKTOP_HOST = "app";
-const DESKTOP_PRODUCTION_SCHEME = "t3code";
+const DESKTOP_PRODUCTION_SCHEME = resolveProductionDesktopScheme();
 const DESKTOP_DEVELOPMENT_SCHEME = "t3code-dev";
 
-export function getDesktopScheme(isDevelopment: boolean): string {
-  return isDevelopment ? DESKTOP_DEVELOPMENT_SCHEME : DESKTOP_PRODUCTION_SCHEME;
+export function getDesktopScheme(
+  isDevelopment: boolean,
+  variant: DesktopVariant = CURRENT_DESKTOP_VARIANT,
+): string {
+  return isDevelopment ? DESKTOP_DEVELOPMENT_SCHEME : resolveProductionDesktopScheme(variant);
 }
 
 function getDesktopOrigin(isDevelopment: boolean): string {
