@@ -783,4 +783,65 @@ describe("Antigravity subscription limits", () => {
       }
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
+
+  it.effect(
+    "skips OS keyring lookup on macOS when T3CODE_ANTIGRAVITY_SKIP_MACOS_KEYRING=1 while keeping Windows enabled",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(
+          DateTime.toEpochMillis(DateTime.makeUnsafe("2026-10-09T12:00:00Z")),
+        );
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const profileDirectory = yield* fs.makeTempDirectoryScoped();
+        yield* fs.makeDirectory(path.join(profileDirectory, "antigravity-acp"));
+        let keyringReads = 0;
+        const readKeyringSecret = Effect.sync(() => {
+          keyringReads += 1;
+          return JSON.stringify({
+            token: { access_token: "access-token", expiry: "2026-10-09T14:00:00Z" },
+          });
+        });
+        const http = HttpClient.make((request) =>
+          Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              Response.json(request.url.endsWith("/userinfo") ? { id: "user-1" } : summary, {
+                status: 200,
+              }),
+            ),
+          ),
+        );
+
+        const darwinUsage = yield* makeAntigravityUsageProbe({
+          profileDirectory,
+          authMethod: "oauth-business",
+          readKeyringSecret,
+        }).pipe(
+          Effect.provideService(HttpClient.HttpClient, http),
+          Effect.provideService(HostProcess.Platform, "darwin"),
+          Effect.provideService(HostProcess.Environment, {
+            T3CODE_ANTIGRAVITY_SKIP_MACOS_KEYRING: "1",
+          }),
+        );
+        const darwinLimits = yield* darwinUsage.probe;
+        expect(darwinLimits.unavailable?.reason).toBe("unsupported");
+        expect(keyringReads).toBe(0);
+
+        const winUsage = yield* makeAntigravityUsageProbe({
+          profileDirectory,
+          authMethod: "oauth-business",
+          readKeyringSecret,
+        }).pipe(
+          Effect.provideService(HttpClient.HttpClient, http),
+          Effect.provideService(HostProcess.Platform, "win32"),
+          Effect.provideService(HostProcess.Environment, {
+            T3CODE_ANTIGRAVITY_SKIP_MACOS_KEYRING: "1",
+          }),
+        );
+        const winLimits = yield* winUsage.probe;
+        expect(winLimits.unavailable).toBeUndefined();
+        expect(keyringReads).toBe(1);
+      }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  );
 });

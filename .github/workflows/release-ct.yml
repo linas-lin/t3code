@@ -11,6 +11,15 @@ on:
         required: false
         default: ""
         type: string
+      platforms:
+        description: "Target platforms to build"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - mac
+          - win
 
 concurrency:
   group: release-ct-${{ github.ref_name }}-${{ inputs.tag || 'auto' }}
@@ -27,6 +36,7 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
       ref: ${{ steps.meta.outputs.ref }}
+      matrix: ${{ steps.meta.outputs.matrix }}
     steps:
       - name: Checkout package metadata
         shell: bash
@@ -45,16 +55,21 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
           INPUT_TAG: ${{ inputs.tag }}
+          INPUT_PLATFORMS: ${{ inputs.platforms || 'all' }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           pkg_version="$(node -p 'require("./apps/desktop/package.json").version')"
           if [[ "$EVENT_NAME" == "push" ]]; then
             tag="$REF_NAME"
-          elif [[ -n "${INPUT_TAG// /}" ]]; then
-            tag="${INPUT_TAG// /}"
+            platforms="all"
           else
-            tag="ct-v${pkg_version}"
+            platforms="$INPUT_PLATFORMS"
+            if [[ -n "${INPUT_TAG// /}" ]]; then
+              tag="${INPUT_TAG// /}"
+            else
+              tag="ct-v${pkg_version}"
+            fi
           fi
 
           if [[ "$tag" != ct-v* ]]; then
@@ -69,10 +84,37 @@ jobs:
             version="$pkg_version"
           fi
 
+          matrix_json="$(PLATFORMS="$platforms" node -e '
+            const all = [
+              {
+                label: "macOS Apple Silicon (arm64)",
+                runner: "macos-14",
+                platform: "mac",
+                target: "dmg",
+                arch: "arm64",
+                rust_target: "aarch64-apple-darwin",
+                artifact_glob: "release/T3-Code-CT-*-arm64.dmg",
+              },
+              {
+                label: "Windows (x64)",
+                runner: "windows-latest",
+                platform: "win",
+                target: "nsis",
+                arch: "x64",
+                rust_target: "x86_64-pc-windows-msvc",
+                artifact_glob: "release/T3-Code-CT-*-x64.exe",
+              },
+            ];
+            const wanted = process.env.PLATFORMS || "all";
+            const include = wanted === "all" ? all : all.filter((entry) => entry.platform === wanted);
+            process.stdout.write(JSON.stringify({ include }));
+          ')"
+
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "ref=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
-          echo "Resolved release tag=$tag version=$version ref=$COMMIT_SHA"
+          echo "matrix=$matrix_json" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag=$tag version=$version platforms=$platforms ref=$COMMIT_SHA"
 
   build:
     name: Build ${{ matrix.label }}
@@ -81,22 +123,7 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - label: macOS Apple Silicon (arm64)
-            runner: macos-15
-            platform: mac
-            target: dmg
-            arch: arm64
-            rust_target: aarch64-apple-darwin
-            artifact_glob: "release/T3-Code-CT-*-arm64.dmg"
-          - label: Windows (x64)
-            runner: windows-latest
-            platform: win
-            target: nsis
-            arch: x64
-            rust_target: x86_64-pc-windows-msvc
-            artifact_glob: "release/T3-Code-CT-*-x64.exe"
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
     steps:
       - name: Checkout
         shell: bash

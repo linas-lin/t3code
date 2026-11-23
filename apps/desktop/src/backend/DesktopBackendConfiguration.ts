@@ -576,7 +576,12 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING: "1",
         T3CODE_CLI_PATH: Option.getOrUndefined(input.cliPath),
         [DESKTOP_HOST_SCOPE_ENV]: input.hostScope,
-        ...(isCtDesktopVariant() ? { T3CODE_ENVIRONMENT_LABEL_SUFFIX: "CT" } : {}),
+        ...(isCtDesktopVariant()
+          ? {
+              T3CODE_ENVIRONMENT_LABEL_SUFFIX: "CT",
+              T3CODE_ANTIGRAVITY_SKIP_MACOS_KEYRING: "1",
+            }
+          : {}),
       },
       extendEnv: true,
       bootstrap,

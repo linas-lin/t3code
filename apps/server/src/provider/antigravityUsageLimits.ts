@@ -328,6 +328,9 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
   const crypto = yield* Digest.Digest;
   const platform = yield* HostProcess.Platform;
   const architecture = yield* HostProcess.Architecture;
+  const environment = Option.getOrUndefined(yield* Effect.serviceOption(HostProcess.Environment));
+  const skipMacosKeyring =
+    platform === "darwin" && environment?.T3CODE_ANTIGRAVITY_SKIP_MACOS_KEYRING?.trim() === "1";
   const tokenPath = path.join(input.profileDirectory, "antigravity-acp", "acp_token.json");
   const cliTokenPath = path.join(
     input.profileDirectory,
@@ -360,9 +363,11 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
     if (!(yield* fs.exists(tokenPath))) {
       cached = undefined;
       // Google account instances bypass the keyring, whose one entry every profile shares.
+      // Unsigned macOS variants can also opt out via T3CODE_ANTIGRAVITY_SKIP_MACOS_KEYRING=1
+      // to avoid repeated Keychain prompts on periodic quota probes.
       const stored = (yield* fs.exists(cliTokenPath))
         ? yield* fs.readFileString(cliTokenPath)
-        : input.authMethod === "oauth-business"
+        : input.authMethod === "oauth-business" && !skipMacosKeyring
           ? yield* readKeyringSecret
           : undefined;
       if (stored === undefined) {
