@@ -88,7 +88,7 @@ jobs:
             const all = [
               {
                 label: "macOS Apple Silicon (arm64)",
-                runner: "macos-14",
+                runner: "macos-26",
                 platform: "mac",
                 target: "dmg",
                 arch: "arm64",
@@ -179,6 +179,9 @@ jobs:
           T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR: ${{ steps.resource_monitor_cache.outputs.cache-hit == 'true' }}
         run: |
           set -euo pipefail
+          # Re-export Vite+ bin through bash so MSYS2 converts it to a native Win32 PATH entry on cache hit.
+          export PATH="$HOME/.vite-plus/bin:$PATH"
+          command -v vp
           cp .env.example .env
           mkdir -p "${{ steps.stage_pnpm.outputs.dir }}"
           node scripts/build-desktop-artifact.ts \
