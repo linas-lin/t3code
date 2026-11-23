@@ -1,0 +1,239 @@
+name: Release T3 Code (CT)
+
+on:
+  push:
+    tags:
+      - "ct-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (for example ct-v0.1.11). Leave empty to use ct-v<desktop version>."
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: release-ct-${{ github.ref_name }}-${{ inputs.tag || 'auto' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      ref: ${{ steps.meta.outputs.ref }}
+    steps:
+      - name: Checkout package metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git sparse-checkout set --no-cone '/apps/desktop/package.json'
+          git checkout --detach FETCH_HEAD
+
+      - name: Resolve tag and build version
+        id: meta
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          pkg_version="$(node -p 'require("./apps/desktop/package.json").version')"
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            tag="$REF_NAME"
+          elif [[ -n "${INPUT_TAG// /}" ]]; then
+            tag="${INPUT_TAG// /}"
+          else
+            tag="ct-v${pkg_version}"
+          fi
+
+          if [[ "$tag" != ct-v* ]]; then
+            echo "::error::Release tag must start with 'ct-v' (got '$tag')."
+            exit 1
+          fi
+
+          stripped="${tag#ct-v}"
+          if [[ "$stripped" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            version="$stripped"
+          else
+            version="$pkg_version"
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "ref=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag=$tag version=$version ref=$COMMIT_SHA"
+
+  build:
+    name: Build ${{ matrix.label }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Apple Silicon (arm64)
+            runner: macos-15
+            platform: mac
+            target: dmg
+            arch: arm64
+            rust_target: aarch64-apple-darwin
+            artifact_glob: "release/T3-Code-CT-*-arm64.dmg"
+          - label: Windows (x64)
+            runner: windows-latest
+            platform: win
+            target: nsis
+            arch: x64
+            rust_target: x86_64-pc-windows-msvc
+            artifact_glob: "release/T3-Code-CT-*-x64.exe"
+    steps:
+      - name: Checkout
+        shell: bash
+        env:
+          CHECKOUT_REF: ${{ needs.prepare.outputs.ref }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git -c checkout.workers=0 checkout --detach FETCH_HEAD
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+
+      - name: Resolve staged install cache
+        id: stage_pnpm
+        shell: bash
+        run: |
+          echo "dir=$RUNNER_TEMP/desktop-stage-pnpm" >> "$GITHUB_OUTPUT"
+          echo "prefix=ct-desktop-stage-pnpm-v1-${{ matrix.platform }}-${{ matrix.arch }}-$(date -u +%G-%V)-" >> "$GITHUB_OUTPUT"
+
+      - name: Restore staged install cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.stage_pnpm.outputs.dir }}
+          key: ${{ steps.stage_pnpm.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.stage_pnpm.outputs.prefix }}
+
+      - name: Cache resource monitor
+        id: resource_monitor_cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: native/resource-monitor/target/${{ matrix.rust_target }}/release/t3-resource-monitor${{ matrix.platform == 'win' && '.exe' || '' }}
+          key: ct-resource-monitor-${{ matrix.rust_target }}-${{ hashFiles('.cargo/config.toml', 'native/resource-monitor/Cargo.lock', 'native/resource-monitor/Cargo.toml', 'native/resource-monitor/src/**') }}
+
+      - name: Setup Rust
+        if: steps.resource_monitor_cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust_target }}
+
+      - name: Build T3 Code (CT) artifact
+        shell: bash
+        env:
+          pnpm_config_cache_dir: ${{ steps.stage_pnpm.outputs.dir }}/cache
+          pnpm_config_store_dir: ${{ steps.stage_pnpm.outputs.dir }}/store
+          T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR: ${{ steps.resource_monitor_cache.outputs.cache-hit == 'true' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ steps.stage_pnpm.outputs.dir }}"
+          node scripts/build-desktop-artifact.ts \
+            --variant ct \
+            --platform "${{ matrix.platform }}" \
+            --target "${{ matrix.target }}" \
+            --arch "${{ matrix.arch }}" \
+            --build-version "${{ needs.prepare.outputs.version }}" \
+            --verbose
+          ls -lh release/
+
+      - name: Save staged install cache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        with:
+          path: ${{ steps.stage_pnpm.outputs.dir }}
+          key: ${{ steps.stage_pnpm.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ct-installer-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    name: Publish GitHub Release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download installers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: ct-installer-*
+          path: dist-release
+          merge-multiple: true
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ needs.prepare.outputs.ref }}
+        run: |
+          set -euo pipefail
+          ls -lh dist-release/
+
+          cat > release-notes.md <<EOF
+          ## T3 Code (CT) ${VERSION}
+
+          Coexisting desktop build (**T3 Code (CT)**, bundle ID \`com.ct.t3code\`, scheme \`t3code-ct://\`, isolated user data). Installs alongside the standard T3 Code app without overwriting it.
+
+          ### One-Line Install / Upgrade
+
+          **macOS (Apple Silicon / arm64)** — automatically installs to \`/Applications/T3 Code (CT).app\` and clears quarantine:
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/${REPO}/ct-studio/scripts/install-ct.sh | bash
+          \`\`\`
+
+          **Windows (x64)** — downloads and runs the installer in PowerShell:
+          \`\`\`powershell
+          irm https://raw.githubusercontent.com/${REPO}/ct-studio/scripts/install-ct.ps1 | iex
+          \`\`\`
+
+          ### Manual Download Notes
+          - **macOS**: If downloaded manually via browser, drag \`T3 Code (CT).app\` to \`/Applications\` and run \`xattr -cr "/Applications/T3 Code (CT).app"\` once before opening (unsigned build).
+          - **Windows**: This build is unsigned; if Windows SmartScreen prompts, click **More info → Run anyway**.
+          EOF
+
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist-release/* --repo "$REPO" --clobber
+            gh release edit "$TAG" --repo "$REPO" --title "T3 Code (CT) ${TAG}" --notes-file release-notes.md --latest
+          else
+            gh release create "$TAG" dist-release/* \
+              --repo "$REPO" \
+              --target "$COMMIT_SHA" \
+              --title "T3 Code (CT) ${TAG}" \
+              --notes-file release-notes.md \
+              --latest
+          fi
