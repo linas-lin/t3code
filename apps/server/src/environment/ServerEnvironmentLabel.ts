@@ -199,6 +199,20 @@ const labelOverride = Config.String("T3CODE_ENVIRONMENT_LABEL").pipe(
   Config.map(Option.flatMap((label) => Option.fromNullishOr(normalizeLabel(label)))),
 );
 
+// Optional variant qualifier appended when no explicit T3CODE_ENVIRONMENT_LABEL is set.
+const labelSuffix = Config.String("T3CODE_ENVIRONMENT_LABEL_SUFFIX").pipe(
+  Config.option,
+  Config.map(Option.flatMap((suffix) => Option.fromNullishOr(normalizeLabel(suffix)))),
+);
+
+function withLabelSuffix(label: string, suffix: Option.Option<string>): string {
+  if (Option.isNone(suffix)) {
+    return label;
+  }
+  const tag = `(${suffix.value})`;
+  return label.endsWith(tag) ? label : `${label} ${tag}`;
+}
+
 export const resolveServerEnvironmentLabel = Effect.fn("resolveServerEnvironmentLabel")(function* (
   input: ResolveServerEnvironmentLabelInput,
 ) {
@@ -207,9 +221,11 @@ export const resolveServerEnvironmentLabel = Effect.fn("resolveServerEnvironment
     return override.value;
   }
 
+  const suffix = yield* labelSuffix.pipe(Effect.orElseSucceed(() => Option.none<string>()));
+
   const friendlyHostLabel = yield* resolveFriendlyHostLabel();
   if (friendlyHostLabel) {
-    return friendlyHostLabel;
+    return withLabelSuffix(friendlyHostLabel, suffix);
   }
 
   const hostname = normalizeLabel(yield* HostProcess.Hostname);
@@ -217,10 +233,10 @@ export const resolveServerEnvironmentLabel = Effect.fn("resolveServerEnvironment
     // WSL inherits the Windows hostname, so qualify it to tell the two environments apart.
     if (yield* isWsl()) {
       const distro = normalizeLabel((yield* HostProcess.Environment).WSL_DISTRO_NAME);
-      return distro ? `${hostname} WSL (${distro})` : `${hostname} WSL`;
+      return withLabelSuffix(distro ? `${hostname} WSL (${distro})` : `${hostname} WSL`, suffix);
     }
-    return hostname;
+    return withLabelSuffix(hostname, suffix);
   }
 
-  return normalizeLabel(input.cwdBaseName) ?? "T3 environment";
+  return withLabelSuffix(normalizeLabel(input.cwdBaseName) ?? "T3 environment", suffix);
 });

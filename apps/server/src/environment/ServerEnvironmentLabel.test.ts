@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -100,4 +101,42 @@ it.effect("qualifies the inherited Windows hostname only inside WSL", () =>
       assert.equal(label, expected, kernel);
     }
   }),
+);
+
+it.effect(
+  "appends T3CODE_ENVIRONMENT_LABEL_SUFFIX unless an explicit label override is configured",
+  () =>
+    Effect.gen(function* () {
+      const baseLayer = Layer.mergeAll(
+        Layer.succeed(HostProcess.Platform, "darwin"),
+        Layer.succeed(HostProcess.Hostname, "yihuier-mac"),
+        Layer.succeed(ProcessRunner.ProcessRunner, exitsWithFailure),
+        FileSystem.layerNoop({ exists: () => Effect.succeed(false) }),
+      );
+
+      const suffixed = yield* resolveServerEnvironmentLabel({ cwdBaseName: "project" }).pipe(
+        Effect.provide(baseLayer),
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({ env: { T3CODE_ENVIRONMENT_LABEL_SUFFIX: "CT" } }),
+          ),
+        ),
+      );
+      assert.equal(suffixed, "yihuier-mac (CT)");
+
+      const overridden = yield* resolveServerEnvironmentLabel({ cwdBaseName: "project" }).pipe(
+        Effect.provide(baseLayer),
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_ENVIRONMENT_LABEL: "My Custom Mac",
+                T3CODE_ENVIRONMENT_LABEL_SUFFIX: "CT",
+              },
+            }),
+          ),
+        ),
+      );
+      assert.equal(overridden, "My Custom Mac");
+    }),
 );

@@ -152,6 +152,7 @@ jobs:
           T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR: ${{ steps.resource_monitor_cache.outputs.cache-hit == 'true' }}
         run: |
           set -euo pipefail
+          cp .env.example .env
           mkdir -p "${{ steps.stage_pnpm.outputs.dir }}"
           node scripts/build-desktop-artifact.ts \
             --variant ct \
@@ -207,7 +208,7 @@ jobs:
           cat > release-notes.md <<EOF
           ## T3 Code (CT) ${VERSION}
 
-          Coexisting desktop build (**T3 Code (CT)**, bundle ID \`com.ct.t3code\`, scheme \`t3code-ct://\`, isolated user data). Installs alongside the standard T3 Code app without overwriting it.
+          Coexisting desktop build (**T3 Code (CT)**, bundle ID \`com.ct.t3code\`, scheme \`t3code-dev://\`, isolated user data). Installs alongside the standard T3 Code app without overwriting it.
 
           ### One-Line Install / Upgrade
 

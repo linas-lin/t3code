@@ -29,7 +29,9 @@ export function resolveProductionUserDataDirName(
 export function resolveProductionDesktopScheme(
   variant: DesktopVariant = CURRENT_DESKTOP_VARIANT,
 ): string {
-  return isCtDesktopVariant(variant) ? "t3code-ct" : "t3code";
+  // Use `t3code-dev` for CT builds so they stay separate from the official `t3code://`
+  // production scheme while still being accepted by Clerk / T3 Connect and server CORS.
+  return isCtDesktopVariant(variant) ? "t3code-dev" : "t3code";
 }
 
 export function resolveProductionAppUserModelId(

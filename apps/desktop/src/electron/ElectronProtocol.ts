@@ -118,7 +118,7 @@ function withContentSecurityPolicy(response: Response, policy: string): Response
 
 // Must run synchronously before Electron emits ready.
 function registerDesktopSchemePrivilegesSync(): void {
-  Electron.protocol.registerSchemesAsPrivileged([
+  const schemes: Electron.CustomScheme[] = [
     {
       scheme: DESKTOP_PRODUCTION_SCHEME,
       privileges: {
@@ -131,7 +131,9 @@ function registerDesktopSchemePrivilegesSync(): void {
         codeCache: true,
       },
     },
-    {
+  ];
+  if (DESKTOP_DEVELOPMENT_SCHEME !== DESKTOP_PRODUCTION_SCHEME) {
+    schemes.push({
       scheme: DESKTOP_DEVELOPMENT_SCHEME,
       privileges: {
         standard: true,
@@ -140,8 +142,9 @@ function registerDesktopSchemePrivilegesSync(): void {
         corsEnabled: true,
         stream: true,
       },
-    },
-  ]);
+    });
+  }
+  Electron.protocol.registerSchemesAsPrivileged(schemes);
 }
 
 const registerDesktopSchemePrivileges = Effect.sync(registerDesktopSchemePrivilegesSync).pipe(

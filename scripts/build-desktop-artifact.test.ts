@@ -1914,7 +1914,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.equal(macConfig.artifactName, "T3-Code-CT-${version}-${arch}.${ext}");
       assert.isNull(macConfig.publish);
       assert.deepStrictEqual((macConfig.mac as { protocols: unknown }).protocols, [
-        { name: "T3 Code (CT)", schemes: ["t3code-ct"] },
+        { name: "T3 Code (CT)", schemes: ["t3code-dev"] },
       ]);
       assert.equal((macConfig.dmg as { title: string }).title, "T3 Code (CT) 0.1.11 Installer");
 
@@ -1935,7 +1935,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.nestedPropertyVal(linuxConfig, "linux.executableName", "t3code-ct");
       assert.nestedPropertyVal(linuxConfig, "linux.desktop.entry.StartupWMClass", "com.ct.T3Code");
       assert.deepStrictEqual((linuxConfig.linux as { protocols: unknown }).protocols, [
-        { name: "T3 Code (CT)", schemes: ["t3code-ct"] },
+        { name: "T3 Code (CT)", schemes: ["t3code-dev"] },
       ]);
     }).pipe(
       Effect.provide(
