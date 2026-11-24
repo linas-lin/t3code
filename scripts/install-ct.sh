@@ -88,18 +88,25 @@ if pgrep -f "/T3 Code \(CT\)\.app/" >/dev/null 2>&1; then
   fi
 fi
 
+USE_SUDO=0
 mkdir -p "$APP_DIR" 2>/dev/null || true
-if [[ -w "$APP_DIR" ]]; then
-  SUDO=()
-else
+if [[ ! -w "$APP_DIR" ]]; then
   info "Administrator permission is required to write into ${APP_DIR}."
-  SUDO=(sudo)
+  USE_SUDO=1
 fi
 
+run_install_cmd() {
+  if [[ "$USE_SUDO" -eq 1 ]]; then
+    sudo "$@"
+  else
+    "$@"
+  fi
+}
+
 info "Installing to ${DEST_APP}..."
-"${SUDO[@]}" rm -rf "$DEST_APP"
-"${SUDO[@]}" ditto "$SRC_APP" "$DEST_APP"
-"${SUDO[@]}" xattr -cr "$DEST_APP"
+run_install_cmd rm -rf "$DEST_APP"
+run_install_cmd ditto "$SRC_APP" "$DEST_APP"
+run_install_cmd xattr -cr "$DEST_APP"
 
 info "Installed T3 Code (CT) (${TAG_NAME}) to ${DEST_APP}."
 info "You can open it now from Applications or run: open -a \"T3 Code (CT)\""
