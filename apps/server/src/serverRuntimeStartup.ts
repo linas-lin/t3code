@@ -168,6 +168,10 @@ const recordStartupHeartbeat = Effect.gen(function* () {
     ),
   );
 
+  if (!(yield* AnalyticsService.isTelemetryOptedIn)) {
+    return;
+  }
+
   yield* analytics.record("server.boot.heartbeat", {
     threadCount,
     projectCount,

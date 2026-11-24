@@ -71,13 +71,19 @@ const TelemetryEnvConfig = Config.all({
   posthogHost: Config.String("T3CODE_POSTHOG_HOST").pipe(
     Config.withDefault("https://ingest.t3.codes"),
   ),
-  enabled: Config.Boolean("T3CODE_TELEMETRY_ENABLED").pipe(Config.withDefault(true)),
+  // CT build defaults telemetry to opt-in (disabled unless explicitly set to true).
+  enabled: Config.Boolean("T3CODE_TELEMETRY_ENABLED").pipe(Config.option),
   flushBatchSize: Config.Number("T3CODE_TELEMETRY_FLUSH_BATCH_SIZE").pipe(Config.withDefault(20)),
   maxBufferedEvents: Config.Number("T3CODE_TELEMETRY_MAX_BUFFERED_EVENTS").pipe(
     Config.withDefault(1_000),
   ),
   wslDistroName: Config.String("WSL_DISTRO_NAME").pipe(Config.option),
 });
+
+export const isTelemetryOptedIn = Config.Boolean("T3CODE_TELEMETRY_ENABLED").pipe(
+  Config.withDefault(false),
+  Effect.orElseSucceed(() => false),
+);
 
 export class AnalyticsService extends Context.Service<
   AnalyticsService,
@@ -127,13 +133,18 @@ export const make = Effect.gen(function* () {
     ManagedPolicy.deniedBy(yield* ManagedPolicy.ManagedPolicy, "telemetry") === undefined;
   // A cached PATH does not establish consent from the current login shell.
   const telemetryEnabled = Effect.suspend(() => {
-    if (!telemetryConfig.enabled || !policyAllows) return Effect.succeed(false);
-    if (!awaitingShellConsent) return Effect.succeed(true);
+    if (!policyAllows) return Effect.succeed(false);
+    if (Option.isSome(telemetryConfig.enabled) && !telemetryConfig.enabled.value) {
+      return Effect.succeed(false);
+    }
+    if (!awaitingShellConsent) {
+      return Effect.succeed(Option.getOrElse(telemetryConfig.enabled, () => false));
+    }
     if (hostEnvironment.T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING === "1")
       return Effect.succeed(false);
     const preference = hostEnvironment.T3CODE_TELEMETRY_ENABLED;
     return Config.Boolean("T3CODE_TELEMETRY_ENABLED").pipe(
-      Config.withDefault(true),
+      Config.withDefault(false),
       Effect.provideService(
         ConfigProvider.ConfigProvider,
         ConfigProvider.fromEnv({
@@ -145,7 +156,9 @@ export const make = Effect.gen(function* () {
   });
   const httpClient = yield* HttpClient.HttpClient;
   const serverConfig = yield* ServerConfig.ServerConfig;
-  const { distinctId, installId } = yield* getTelemetryIdentity;
+  // Lazily resolve telemetry identity only when telemetry is actually enabled so we never read
+  // external provider credential files (~/.codex/auth.json, ~/.claude.json) while opted out.
+  const loadTelemetryIdentity = yield* Effect.cached(getTelemetryIdentity);
   const crypto = yield* SecureRandom.SecureRandom;
   const bufferRef = yield* Ref.make<ReadonlyArray<BufferedAnalyticsEvent>>([]);
   const deliveryRef = yield* Ref.make<DeliveryState>({
@@ -199,7 +212,9 @@ export const make = Effect.gen(function* () {
   const sendBatch = Effect.fn("AnalyticsService.sendBatch")(function* (
     events: ReadonlyArray<BufferedAnalyticsEvent>,
   ) {
-    if (!(yield* telemetryEnabled) || !distinctId) return;
+    if (!(yield* telemetryEnabled)) return;
+    const { distinctId, installId } = yield* loadTelemetryIdentity;
+    if (!distinctId) return;
 
     const payload = {
       api_key: telemetryConfig.posthogKey,
@@ -311,7 +326,9 @@ export const make = Effect.gen(function* () {
 
   const record: AnalyticsService["Service"]["record"] = Effect.fn("AnalyticsService.record")(
     function* (event, properties) {
-      if (!(yield* telemetryEnabled) || !distinctId) return;
+      if (!(yield* telemetryEnabled)) return;
+      const { distinctId } = yield* loadTelemetryIdentity;
+      if (!distinctId) return;
 
       // Catch Node UUID defects too; best-effort telemetry drops events without UUIDs.
       const uuid = yield* Effect.exit(crypto.uuidV7());
