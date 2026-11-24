@@ -64,9 +64,11 @@ import * as DesktopShellEnvironment from "./shell/DesktopShellEnvironment.ts";
 import * as DesktopSshEnvironment from "./ssh/DesktopSshEnvironment.ts";
 import * as DesktopSshPasswordPrompts from "./ssh/DesktopSshPasswordPrompts.ts";
 import * as DesktopState from "./app/DesktopState.ts";
+import { isCtDesktopVariant } from "./app/DesktopVariant.ts";
 import * as DesktopLegacyLocalStorage from "./app/DesktopLegacyLocalStorage.ts";
 import * as DesktopTelemetryPublisher from "./telemetry/DesktopTelemetryPublisher.ts";
 import * as DesktopRendererHistory from "./telemetry/DesktopRendererHistory.ts";
+import * as CtGithubUpdater from "./updates/CtGithubUpdater.ts";
 import * as DesktopUpdatePolicy from "./updates/DesktopUpdatePolicy.ts";
 import * as DesktopUpdates from "./updates/DesktopUpdates.ts";
 import * as BrowserImport from "./preview/BrowserImport/BrowserImport.ts";
@@ -210,6 +212,21 @@ const layerDesktopLocalEnvironmentAuth = DesktopLocalEnvironmentAuth.layer.pipe(
   Layer.provideMerge(layerDesktopBackend),
 );
 
+const layerDesktopUpdatePolicy = DesktopUpdatePolicy.layer.pipe(
+  // The same layer as the foundation's, so the policy is still read once.
+  Layer.provide(DesktopManagedPolicy.layer),
+);
+
+const layerDesktopUpdater = Layer.effect(
+  ElectronUpdater.ElectronUpdater,
+  isCtDesktopVariant() ? CtGithubUpdater.make : Effect.succeed(ElectronUpdater.make),
+).pipe(Layer.provide(layerDesktopUpdatePolicy));
+
+const layerDesktopUpdates = DesktopUpdates.layer.pipe(
+  Layer.provide(layerDesktopUpdater),
+  Layer.provide(layerDesktopUpdatePolicy),
+);
+
 const layerDesktopApplication = Layer.mergeAll(
   DesktopLifecycle.layer,
   layerDesktopAppActivation,
@@ -219,13 +236,7 @@ const layerDesktopApplication = Layer.mergeAll(
   DesktopCliCommand.layer,
 ).pipe(
   Layer.provideMerge(layerDesktopSnapShot),
-  Layer.provideMerge(
-    DesktopUpdates.layer.pipe(
-      Layer.provide(DesktopUpdatePolicy.layer),
-      // The same layer as the foundation's, so the policy is still read once.
-      Layer.provide(DesktopManagedPolicy.layer),
-    ),
-  ),
+  Layer.provideMerge(layerDesktopUpdates),
   // Updates closes the same tunnels the SSH IPC opens before quitAndInstall.
   Layer.provideMerge(layerDesktopSsh),
   Layer.provideMerge(layerDesktopWslBackend),
