@@ -20,6 +20,7 @@ import {
   Columns2Icon,
   FlaskConicalOffIcon,
   FolderTreeIcon,
+  LayoutPanelLeftIcon,
   PilcrowIcon,
   Rows3Icon,
   TextWrapIcon,
@@ -28,7 +29,7 @@ import {
   ChevronsUpDownIcon,
 } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { type MouseEvent, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, type MouseEvent, useEffect, useRef, useState } from "react";
 import { useCodeViewFileReveal } from "./diffs/useCodeViewFileReveal";
 import { useCodeViewScrollRestore } from "./diffs/useCodeViewScrollRestore";
 import { useFilesystemReadAccess } from "~/state/filesystem";
@@ -129,6 +130,9 @@ import {
   type TurnDiffSection,
 } from "@t3tools/client-runtime/state/thread-repositories";
 import { useOpenLink } from "../browser/useOpenLink";
+import { useIdeDiffEnabled } from "./ctStudio/ideDiff/ideDiffPreferences";
+
+const GitIdeDiffAdapter = lazy(() => import("./ctStudio/ideDiff/GitIdeDiffAdapter"));
 
 type DiffThemeType = "light" | "dark";
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
@@ -258,6 +262,7 @@ export default function DiffPanel({
     Schema.Boolean,
   );
   const [hideTestFiles, setHideTestFiles] = useHideTestFiles();
+  const [ideDiffEnabled, setIdeDiffEnabled] = useIdeDiffEnabled();
   const [baseRefQuery, setBaseRefQuery] = useState("");
   // The open commit menu keeps the list it opened with, so rows do not move under the pointer.
   const [openCommitMenu, setOpenCommitMenu] = useState<ReviewBranchCommitsResult | null>(null);
@@ -1432,144 +1437,168 @@ export default function DiffPanel({
             </TooltipPopup>
           </Tooltip>
         )}
-        {diffFileKeys.length > 0 && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={
-                    allDiffFilesCollapsed ? gt("Expand all files") : gt("Collapse all files")
+        {!ideDiffEnabled ? (
+          <>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={gt("Switch to IDE diff view")}
+                    onClick={() => setIdeDiffEnabled(true)}
+                  />
+                }
+              >
+                <LayoutPanelLeftIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">
+                <T>Switch to IDE diff view (Monaco)</T>
+              </TooltipPopup>
+            </Tooltip>
+            {diffFileKeys.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={
+                        allDiffFilesCollapsed ? gt("Expand all files") : gt("Collapse all files")
+                      }
+                      onClick={toggleDiffFileCollapse}
+                    />
                   }
-                  onClick={toggleDiffFileCollapse}
-                />
-              }
-            >
-              {allDiffFilesCollapsed ? (
-                <ChevronsUpDownIcon className="size-3.5" />
-              ) : (
-                <ChevronsDownUpIcon className="size-3.5" />
-              )}
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {allDiffFilesCollapsed ? gt("Expand all files") : gt("Collapse all files")}
-            </TooltipPopup>
-          </Tooltip>
-        )}
-        <span className={cn("contents", narrowHeaderHidden)}>
-          <ToggleGroup
-            aria-label={gt("Diff layout")}
-            className="shrink-0"
-            variant="segmented"
-            value={[diffLayout]}
-            onValueChange={(value) => {
-              const next = value[0];
-              if (next === "stacked" || next === "split") {
-                updateClientSettings({ diffLayout: next });
-              }
-            }}
-          >
-            <Toggle aria-label={gt("Stacked diff view")} value="stacked">
-              <Rows3Icon className="size-3.5" />
-            </Toggle>
-            <Toggle aria-label={gt("Split diff view")} value="split">
-              <Columns2Icon className="size-3.5" />
-            </Toggle>
-          </ToggleGroup>
-        </span>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                aria-label={
-                  wordWrap ? gt("Disable diff line wrapping") : gt("Enable diff line wrapping")
-                }
-                variant="ghost"
-                size="sm"
-                pressed={wordWrap}
-                onPressedChange={(pressed) => {
-                  setWordWrapOverride(Boolean(pressed));
+                >
+                  {allDiffFilesCollapsed ? (
+                    <ChevronsUpDownIcon className="size-3.5" />
+                  ) : (
+                    <ChevronsDownUpIcon className="size-3.5" />
+                  )}
+                </TooltipTrigger>
+                <TooltipPopup side="top">
+                  {allDiffFilesCollapsed ? gt("Expand all files") : gt("Collapse all files")}
+                </TooltipPopup>
+              </Tooltip>
+            )}
+            <span className={cn("contents", narrowHeaderHidden)}>
+              <ToggleGroup
+                aria-label={gt("Diff layout")}
+                className="shrink-0"
+                variant="segmented"
+                value={[diffLayout]}
+                onValueChange={(value) => {
+                  const next = value[0];
+                  if (next === "stacked" || next === "split") {
+                    updateClientSettings({ diffLayout: next });
+                  }
                 }}
-              />
-            }
-          >
-            <TextWrapIcon className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="top">
-            {wordWrap ? gt("Disable line wrapping") : gt("Enable line wrapping")}
-          </TooltipPopup>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                aria-label={
-                  diffIgnoreWhitespace
-                    ? gt("Show whitespace changes")
-                    : gt("Hide whitespace changes")
+              >
+                <Toggle aria-label={gt("Stacked diff view")} value="stacked">
+                  <Rows3Icon className="size-3.5" />
+                </Toggle>
+                <Toggle aria-label={gt("Split diff view")} value="split">
+                  <Columns2Icon className="size-3.5" />
+                </Toggle>
+              </ToggleGroup>
+            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Toggle
+                    aria-label={
+                      wordWrap ? gt("Disable diff line wrapping") : gt("Enable diff line wrapping")
+                    }
+                    variant="ghost"
+                    size="sm"
+                    pressed={wordWrap}
+                    onPressedChange={(pressed) => {
+                      setWordWrapOverride(Boolean(pressed));
+                    }}
+                  />
                 }
-                variant="ghost"
-                size="sm"
-                pressed={diffIgnoreWhitespace}
-                onPressedChange={(pressed) => {
-                  useDiffPanelSessionStore.getState().setIgnoreWhitespace(Boolean(pressed));
-                }}
-              />
-            }
-          >
-            <PilcrowIcon className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="top">
-            {diffIgnoreWhitespace ? gt("Show whitespace changes") : gt("Hide whitespace changes")}
-          </TooltipPopup>
-        </Tooltip>
-        {testFileCount > 0 && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Toggle
-                  aria-label={gt("Hide test files")}
-                  variant="ghost"
-                  size="sm"
-                  pressed={hideTestFiles}
-                  onPressedChange={(pressed) => setHideTestFiles(Boolean(pressed))}
-                />
-              }
-            >
-              <FlaskConicalOffIcon className="size-3.5" />
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {hideTestFiles
-                ? gt(
-                    "{count, plural, one {Show {count} hidden test file} other {Show {count} hidden test files}}",
-                    { count: testFileCount },
-                  )
-                : gt("Hide test files")}
-            </TooltipPopup>
-          </Tooltip>
-        )}
-        {diffFileKeys.length > 0 && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Toggle
-                  aria-label={fileTreeOpen ? gt("Hide file tree") : gt("Show file tree")}
-                  variant="ghost"
-                  size="sm"
-                  pressed={fileTreeOpen}
-                  onPressedChange={(pressed) => setFileTreeOpen(Boolean(pressed))}
-                />
-              }
-            >
-              <FolderTreeIcon className="size-3.5" />
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {fileTreeOpen ? gt("Hide file tree") : gt("Show file tree")}
-            </TooltipPopup>
-          </Tooltip>
-        )}
+              >
+                <TextWrapIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">
+                {wordWrap ? gt("Disable line wrapping") : gt("Enable line wrapping")}
+              </TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Toggle
+                    aria-label={
+                      diffIgnoreWhitespace
+                        ? gt("Show whitespace changes")
+                        : gt("Hide whitespace changes")
+                    }
+                    variant="ghost"
+                    size="sm"
+                    pressed={diffIgnoreWhitespace}
+                    onPressedChange={(pressed) => {
+                      useDiffPanelSessionStore.getState().setIgnoreWhitespace(Boolean(pressed));
+                    }}
+                  />
+                }
+              >
+                <PilcrowIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">
+                {diffIgnoreWhitespace
+                  ? gt("Show whitespace changes")
+                  : gt("Hide whitespace changes")}
+              </TooltipPopup>
+            </Tooltip>
+            {testFileCount > 0 && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Toggle
+                      aria-label={gt("Hide test files")}
+                      variant="ghost"
+                      size="sm"
+                      pressed={hideTestFiles}
+                      onPressedChange={(pressed) => setHideTestFiles(Boolean(pressed))}
+                    />
+                  }
+                >
+                  <FlaskConicalOffIcon className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipPopup side="top">
+                  {hideTestFiles
+                    ? gt(
+                        "{count, plural, one {Show {count} hidden test file} other {Show {count} hidden test files}}",
+                        { count: testFileCount },
+                      )
+                    : gt("Hide test files")}
+                </TooltipPopup>
+              </Tooltip>
+            )}
+            {diffFileKeys.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Toggle
+                      aria-label={fileTreeOpen ? gt("Hide file tree") : gt("Show file tree")}
+                      variant="ghost"
+                      size="sm"
+                      pressed={fileTreeOpen}
+                      onPressedChange={(pressed) => setFileTreeOpen(Boolean(pressed))}
+                    />
+                  }
+                >
+                  <FolderTreeIcon className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipPopup side="top">
+                  {fileTreeOpen ? gt("Hide file tree") : gt("Show file tree")}
+                </TooltipPopup>
+              </Tooltip>
+            )}
+          </>
+        ) : null}
       </div>
     </>
   );
@@ -1676,6 +1705,71 @@ export default function DiffPanel({
                   </p>
                 </div>
               )
+            ) : (lazySource || renderablePatch?.kind === "files") && ideDiffEnabled ? (
+              <Suspense
+                fallback={<DiffPanelLoadingState label={gt("Loading IDE diff viewer...")} />}
+              >
+                <GitIdeDiffAdapter
+                  environmentId={activeThread?.environmentId}
+                  projectId={activeThread?.projectId}
+                  scopeKey={collapseScopeKey ?? reviewSectionId}
+                  scopeTitle={reviewSectionTitle}
+                  sectionId={reviewSectionId}
+                  sectionTitle={reviewSectionTitle}
+                  composerDraftTarget={composerDraftTarget}
+                  files={renderableFileEntries}
+                  fileStats={fileStats}
+                  gitSource={
+                    isGitSelection && activeThread && preview && selectedGitSource && canReadFiles
+                      ? {
+                          environmentId: activeThread.environmentId,
+                          cwd: preview.cwd,
+                          sourceKind: selectedGitSource.kind,
+                          baseRef: selectedGitSource.baseRef,
+                          headRef: selectedGitSource.headRef,
+                          cacheKey: selectedGitSource.diffHash,
+                          getDiffFileContents,
+                        }
+                      : undefined
+                  }
+                  selectedFilePath={selectedFilePath}
+                  resolvedTheme={resolvedTheme as DiffThemeType}
+                  diffLayout={diffLayout === "split" ? "split" : "unified"}
+                  onDiffLayoutChange={(next) =>
+                    updateClientSettings({ diffLayout: next === "split" ? "split" : "stacked" })
+                  }
+                  ignoreWhitespace={diffIgnoreWhitespace}
+                  onIgnoreWhitespaceChange={(next) => {
+                    useDiffPanelSessionStore.getState().setIgnoreWhitespace(next);
+                  }}
+                  wordWrap={wordWrap}
+                  onWordWrapChange={setWordWrapOverride}
+                  hideTestFiles={hideTestFiles}
+                  onHideTestFilesChange={setHideTestFiles}
+                  testFileCount={testFileCount}
+                  onOpenFile={({ entry }) => openDiffFile(entry.path)}
+                  onFileContextMenu={(entry, event) => {
+                    event.preventDefault();
+                    const repositoryFile = repositoryFileTarget(entry.path);
+                    onFileContextMenu(
+                      repositoryFile?.cwd === undefined
+                        ? {
+                            environmentId: activeThread?.environmentId ?? null,
+                            filePath: entry.path,
+                            workspaceRoot: activeCwd,
+                            repositoryRoot: repositoryFile ? undefined : diffPathRepositoryRoot,
+                          }
+                        : {
+                            environmentId: activeThread?.environmentId ?? null,
+                            filePath: repositoryFile.path,
+                            workspaceRoot: repositoryFile.cwd,
+                          },
+                      event,
+                    );
+                  }}
+                  onSwitchToClassic={() => setIdeDiffEnabled(false)}
+                />
+              </Suspense>
             ) : lazySource || renderablePatch?.kind === "files" ? (
               <div className="flex min-h-0 flex-1 overflow-hidden">
                 <div

@@ -40,6 +40,10 @@ import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../..
 import { AboutVersionTitle } from "./AboutVersionTitle";
 import { CliCommandSettingsRow } from "./CliCommandSettingsRow";
 import { CtStudioSettingsSection } from "../ctStudio/CtStudioSettingsSection";
+import {
+  DEFAULT_IDE_DIFF_ENABLED,
+  useIdeDiffEnabled,
+} from "../ctStudio/ideDiff/ideDiffPreferences";
 import { MobileAppSettingsRow } from "./MobileAppSettingsRow";
 import {
   canCheckForUpdate,
@@ -1689,10 +1693,32 @@ export function DiffsSettingsPanel() {
   const gt = useGT();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
+  const [ideDiffEnabled, setIdeDiffEnabled] = useIdeDiffEnabled();
 
   return (
     <SettingsPageContainer>
       <SettingsSection id="diffs" title={gt("Diffs")}>
+        <SettingsRow
+          {...setting("ide-diff-viewer")}
+          description={gt(
+            "Use the IntelliJ IDEA-inspired Monaco diff workspace with file tree, overview ruler, connector bands, and fullscreen review.",
+          )}
+          resetAction={
+            ideDiffEnabled !== DEFAULT_IDE_DIFF_ENABLED ? (
+              <SettingResetButton
+                ariaLabel={gt("Reset IDE diff viewer to default")}
+                onClick={() => setIdeDiffEnabled(DEFAULT_IDE_DIFF_ENABLED)}
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={ideDiffEnabled}
+              onCheckedChange={(checked) => setIdeDiffEnabled(Boolean(checked))}
+              aria-label={gt("Enable IDE diff viewer")}
+            />
+          }
+        />
         <SettingsRow
           {...setting("diff-layout")}
           description={gt(

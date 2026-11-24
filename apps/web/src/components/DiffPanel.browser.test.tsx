@@ -108,6 +108,7 @@ vi.mock("./diffs/DiffFileTree", () => ({ DiffFileTree: () => null }));
 vi.mock("./DiffFilePathCopyButton", () => ({ DiffFilePathCopyButton: () => null }));
 
 import DiffPanel from "./DiffPanel";
+import { writeIdeDiffEnabled } from "./ctStudio/ideDiff/ideDiffPreferences";
 import { useDiffPanelSessionStore, useDiffPanelStore } from "~/diffPanelStore";
 import { selectThreadRightPanelState, useRightPanelStore } from "~/rightPanelStore";
 
@@ -137,6 +138,7 @@ function preview(): ReviewDiffPreviewResult {
 
 function setup(failedBaseRef: string | null) {
   const reset = () => {
+    writeIdeDiffEnabled(false);
     useDiffPanelStore.setState({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},

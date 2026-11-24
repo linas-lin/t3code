@@ -786,6 +786,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("stacked split side by side unified inline view")],
   },
   {
+    id: "ide-diff-viewer",
+    title: msg("IDE diff viewer (Monaco)"),
+    to: "/settings/diffs",
+    searchTerms: [msg("idea monaco ide diff review viewer tree connectors overview ruler")],
+  },
+  {
     id: "proactive-panels",
     title: msg("Open pull requests and changes panels proactively"),
     to: "/settings/diffs",
