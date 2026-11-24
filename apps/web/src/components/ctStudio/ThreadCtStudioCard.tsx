@@ -10,6 +10,7 @@ import {
   InboxIcon,
   LayoutGridIcon,
   ListTodoIcon,
+  Maximize2Icon,
   PinIcon,
 } from "lucide-react";
 import { memo, useState } from "react";
@@ -52,6 +53,7 @@ function statusDotClass(status: "working" | "blocked" | "done" | "idle" | undefi
 
 function useCtStudioNavigation() {
   const navigate = useNavigate();
+  const openCtStudioModal = useCtStudioStore((state) => state.openModal);
 
   const openCtStudio = (target?: {
     ticket?: string | undefined;
@@ -77,7 +79,7 @@ function useCtStudioNavigation() {
     });
   };
 
-  return { openCtStudio, openThread };
+  return { openCtStudio, openCtStudioModal, openThread };
 }
 
 function LinkDestinationButton({
@@ -359,7 +361,7 @@ export const ThreadCtStudioCard = memo(function ThreadCtStudioCard({
   const badgeCount = useCtStudioStore((state) => state.badgeCount);
   const workspaceContext = useCtStudioStore((state) => state.workspaceContext);
   const thread = useThreadShell(threadRef);
-  const { openCtStudio, openThread } = useCtStudioNavigation();
+  const { openCtStudio, openCtStudioModal, openThread } = useCtStudioNavigation();
   const [manualCollapsed, setManualCollapsed] = useState<boolean | null>(null);
   const [selectedTab, setSelectedTab] = useState<"tasks" | "inbox" | null>(null);
 
@@ -388,10 +390,18 @@ export const ThreadCtStudioCard = memo(function ThreadCtStudioCard({
   const openResolved = () => {
     if (!resolved) return;
     if (resolved.link.kind === "inbox") {
-      openCtStudio({ itemId: resolved.link.itemId });
+      openCtStudioModal({ itemId: resolved.link.itemId });
     } else {
-      openCtStudio({ ticket: resolved.link.ticketKey, stage: resolved.link.stage });
+      openCtStudioModal({ ticket: resolved.link.ticketKey, stage: resolved.link.stage });
     }
+  };
+
+  const openExpandedModal = () => {
+    if (resolved) {
+      openResolved();
+      return;
+    }
+    openCtStudioModal({ view: activeTab === "inbox" ? "timeline" : "jira" });
   };
 
   return (
@@ -423,6 +433,21 @@ export const ThreadCtStudioCard = memo(function ThreadCtStudioCard({
           ) : null}
         </button>
         <div className="flex shrink-0 items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={gt("Expand CT Studio in modal")}
+                  onClick={openExpandedModal}
+                  className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <Maximize2Icon className="size-3.5" aria-hidden />
+                </button>
+              }
+            />
+            <TooltipPopup side="left">{gt("Quick view CT Studio")}</TooltipPopup>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger
               render={
@@ -523,7 +548,7 @@ export const ThreadCtStudioCard = memo(function ThreadCtStudioCard({
                       }
                       currentThreadId={threadRef.threadId}
                       fallbackEnvironmentId={threadRef.environmentId}
-                      onOpenTask={() => openCtStudio({ ticket: task.key, stage: task.stage })}
+                      onOpenTask={() => openCtStudioModal({ ticket: task.key, stage: task.stage })}
                       onOpenThread={openThread}
                     />
                   ))
@@ -540,7 +565,7 @@ export const ThreadCtStudioCard = memo(function ThreadCtStudioCard({
                     isCurrent={resolved?.link.kind === "inbox" && resolved.link.itemId === item.id}
                     currentThreadId={threadRef.threadId}
                     fallbackEnvironmentId={threadRef.environmentId}
-                    onOpenInbox={() => openCtStudio({ itemId: item.id })}
+                    onOpenInbox={() => openCtStudioModal({ itemId: item.id })}
                     onOpenThread={openThread}
                   />
                 ))
@@ -565,7 +590,7 @@ export const ThreadCtStudioPopoverRow = memo(function ThreadCtStudioPopoverRow({
   const connected = useCtStudioStore((state) => state.connected);
   const workspaceContext = useCtStudioStore((state) => state.workspaceContext);
   const thread = useThreadShell(threadRef);
-  const { openCtStudio } = useCtStudioNavigation();
+  const { openCtStudioModal } = useCtStudioNavigation();
 
   if (!connected) return null;
 
@@ -587,9 +612,9 @@ export const ThreadCtStudioPopoverRow = memo(function ThreadCtStudioPopoverRow({
       compact
       onOpen={() => {
         if (resolved.link.kind === "inbox") {
-          openCtStudio({ itemId: resolved.link.itemId });
+          openCtStudioModal({ itemId: resolved.link.itemId });
         } else {
-          openCtStudio({ ticket: resolved.link.ticketKey, stage: resolved.link.stage });
+          openCtStudioModal({ ticket: resolved.link.ticketKey, stage: resolved.link.stage });
         }
       }}
     />

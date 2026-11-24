@@ -208,13 +208,19 @@ export function extractTicketKey(...candidates: Array<string | null | undefined>
 
 export function buildCtStudioUrl(
   baseUrl: string,
-  options: { ticket?: string | undefined; stage?: string | undefined } = {},
+  options: {
+    ticket?: string | undefined;
+    stage?: string | undefined;
+    view?: "timeline" | "jira" | "sessions" | "settings" | undefined;
+  } = {},
 ): string {
   const normalized = normalizeCtStudioUrl(baseUrl) ?? DEFAULT_CT_STUDIO_URL;
   const parsed = new URL(`${normalized}/`);
   parsed.searchParams.set("embedded", "1");
   if (options.ticket?.trim()) {
     parsed.hash = `jira/${encodeURIComponent(options.ticket.trim())}`;
+  } else if (options.view && options.view !== "timeline") {
+    parsed.hash = options.view;
   }
   return parsed.toString();
 }

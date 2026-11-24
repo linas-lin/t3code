@@ -302,6 +302,10 @@ export type CtStudioOutboundMessage =
       readonly stage?: string | undefined;
       readonly itemId?: string | undefined;
       readonly view?: "timeline" | "jira" | "sessions" | "settings" | undefined;
+    }
+  | {
+      readonly type: "t3-ct-studio:presentation";
+      readonly mode: "page" | "modal" | "hidden";
     };
 
 const DRIVER_LABELS: Record<string, string> = {

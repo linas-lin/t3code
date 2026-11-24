@@ -24,6 +24,7 @@ import {
   normalizeGitRepoUrl,
   toggleGitRepoProtocol,
 } from "./ctStudioConfig";
+import { useCtStudioStore } from "./ctStudioStore";
 
 describe("ctStudioConfig", () => {
   it("extracts Jira ticket keys from branch or title while ignoring technical acronyms", () => {
@@ -50,10 +51,16 @@ describe("ctStudioConfig", () => {
     expect(isTrustedCtStudioOrigin("https://evil.example", DEFAULT_CT_STUDIO_URL)).toBe(false);
   });
 
-  it("builds initial URL with embedded flag and hash deep link when a ticket is provided", () => {
+  it("builds initial URL with embedded flag and hash deep link when a ticket or view is provided", () => {
     expect(buildCtStudioUrl(DEFAULT_CT_STUDIO_URL)).toBe("http://127.0.0.1:4600/?embedded=1");
     expect(buildCtStudioUrl(DEFAULT_CT_STUDIO_URL, { ticket: "DEMO-123" })).toBe(
       "http://127.0.0.1:4600/?embedded=1#jira/DEMO-123",
+    );
+    expect(buildCtStudioUrl(DEFAULT_CT_STUDIO_URL, { view: "jira" })).toBe(
+      "http://127.0.0.1:4600/?embedded=1#jira",
+    );
+    expect(buildCtStudioUrl(DEFAULT_CT_STUDIO_URL, { view: "timeline" })).toBe(
+      "http://127.0.0.1:4600/?embedded=1",
     );
   });
 
@@ -719,5 +726,39 @@ describe("pickBestThreadForDiff", () => {
         worktreePath: "/Users/dev/worktrees/external-wt",
       }),
     ).toBeNull();
+  });
+});
+
+describe("useCtStudioStore modal state", () => {
+  it("opens modal with navigation target, clears on close, and closes when entering full route", () => {
+    useCtStudioStore.setState({
+      mounted: false,
+      modalOpen: false,
+      pendingNav: null,
+      iframeSrc: buildCtStudioUrl(DEFAULT_CT_STUDIO_URL),
+    });
+
+    useCtStudioStore.getState().openModal({ view: "jira" });
+    let state = useCtStudioStore.getState();
+    expect(state.mounted).toBe(true);
+    expect(state.modalOpen).toBe(true);
+    expect(state.iframeSrc).toBe("http://127.0.0.1:4600/?embedded=1#jira");
+    expect(state.pendingNav?.view).toBe("jira");
+
+    useCtStudioStore.getState().openModal({ ticket: "BLUE-123", stage: "design" });
+    state = useCtStudioStore.getState();
+    expect(state.modalOpen).toBe(true);
+    expect(state.pendingNav?.ticket).toBe("BLUE-123");
+    expect(state.pendingNav?.stage).toBe("design");
+
+    useCtStudioStore.getState().openFromRoute({ itemId: "item-1" });
+    state = useCtStudioStore.getState();
+    expect(state.modalOpen).toBe(false);
+    expect(state.pendingNav?.itemId).toBe("item-1");
+
+    useCtStudioStore.getState().openModal({ view: "timeline" });
+    expect(useCtStudioStore.getState().modalOpen).toBe(true);
+    useCtStudioStore.getState().closeModal();
+    expect(useCtStudioStore.getState().modalOpen).toBe(false);
   });
 });

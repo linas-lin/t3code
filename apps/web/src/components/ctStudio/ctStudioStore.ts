@@ -3,27 +3,32 @@ import { create } from "zustand";
 import { EMPTY_CT_STUDIO_WORKSPACE_CONTEXT, type CtStudioWorkspaceContext } from "./ctStudioBridge";
 import { buildCtStudioUrl, readCtStudioUrl, writeCtStudioUrl } from "./ctStudioConfig";
 
-export interface CtStudioNavRequest {
+export type CtStudioNavView = "timeline" | "jira" | "sessions" | "settings";
+
+export interface CtStudioNavTarget {
   readonly ticket?: string | undefined;
   readonly stage?: string | undefined;
   readonly itemId?: string | undefined;
+  readonly view?: CtStudioNavView | undefined;
+}
+
+export interface CtStudioNavRequest extends CtStudioNavTarget {
   readonly nonce: number;
 }
 
 interface CtStudioStoreState {
   readonly mounted: boolean;
   readonly connected: boolean;
+  readonly modalOpen: boolean;
   readonly badgeCount: number;
   readonly baseUrl: string;
   readonly iframeSrc: string;
   readonly reloadNonce: number;
   readonly pendingNav: CtStudioNavRequest | null;
   readonly workspaceContext: CtStudioWorkspaceContext;
-  readonly openFromRoute: (target?: {
-    ticket?: string | undefined;
-    stage?: string | undefined;
-    itemId?: string | undefined;
-  }) => void;
+  readonly openFromRoute: (target?: CtStudioNavTarget) => void;
+  readonly openModal: (target?: CtStudioNavTarget) => void;
+  readonly closeModal: () => void;
   readonly markBackgroundMounted: () => void;
   readonly setConnected: (connected: boolean) => void;
   readonly setBadgeCount: (count: number) => void;
@@ -36,9 +41,43 @@ interface CtStudioStoreState {
 let navSequence = 0;
 const initialBaseUrl = readCtStudioUrl();
 
+function applyNavTarget(
+  state: CtStudioStoreState,
+  target?: CtStudioNavTarget,
+): Partial<CtStudioStoreState> {
+  const hasTarget = Boolean(target?.ticket || target?.stage || target?.itemId || target?.view);
+  if (!state.mounted) {
+    const nextSrc = buildCtStudioUrl(state.baseUrl, target);
+    return {
+      mounted: true,
+      iframeSrc: nextSrc,
+      pendingNav: hasTarget
+        ? {
+            ticket: target?.ticket,
+            stage: target?.stage,
+            itemId: target?.itemId,
+            view: target?.view,
+            nonce: ++navSequence,
+          }
+        : state.pendingNav,
+    };
+  }
+  if (!hasTarget) return {};
+  return {
+    pendingNav: {
+      ticket: target?.ticket,
+      stage: target?.stage,
+      itemId: target?.itemId,
+      view: target?.view,
+      nonce: ++navSequence,
+    },
+  };
+}
+
 export const useCtStudioStore = create<CtStudioStoreState>((set) => ({
   mounted: false,
   connected: false,
+  modalOpen: false,
   badgeCount: 0,
   baseUrl: initialBaseUrl,
   iframeSrc: buildCtStudioUrl(initialBaseUrl),
@@ -46,33 +85,16 @@ export const useCtStudioStore = create<CtStudioStoreState>((set) => ({
   pendingNav: null,
   workspaceContext: EMPTY_CT_STUDIO_WORKSPACE_CONTEXT,
   openFromRoute: (target) =>
-    set((state) => {
-      const hasTarget = Boolean(target?.ticket || target?.stage || target?.itemId);
-      if (!state.mounted) {
-        const nextSrc = buildCtStudioUrl(state.baseUrl, target);
-        return {
-          mounted: true,
-          iframeSrc: nextSrc,
-          pendingNav: hasTarget
-            ? {
-                ticket: target?.ticket,
-                stage: target?.stage,
-                itemId: target?.itemId,
-                nonce: ++navSequence,
-              }
-            : state.pendingNav,
-        };
-      }
-      if (!hasTarget) return state;
-      return {
-        pendingNav: {
-          ticket: target?.ticket,
-          stage: target?.stage,
-          itemId: target?.itemId,
-          nonce: ++navSequence,
-        },
-      };
-    }),
+    set((state) => ({
+      ...applyNavTarget(state, target),
+      modalOpen: false,
+    })),
+  openModal: (target) =>
+    set((state) => ({
+      ...applyNavTarget(state, target),
+      modalOpen: true,
+    })),
+  closeModal: () => set((state) => (state.modalOpen ? { modalOpen: false } : state)),
   markBackgroundMounted: () => set((state) => (state.mounted ? state : { mounted: true })),
   setConnected: (connected) =>
     set((state) => (state.connected === connected ? state : { connected })),

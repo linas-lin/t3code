@@ -14,6 +14,7 @@ import {
 } from "@t3tools/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useGT } from "gt-react";
+import { ArrowUpRightIcon, LayoutGridIcon, XIcon } from "lucide-react";
 import { memo, useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { useDiffPanelStore } from "~/diffPanelStore";
@@ -33,7 +34,7 @@ import { useOrchestrationCommand } from "~/state/use-orchestration-command";
 import { vcsEnvironment } from "~/state/vcs";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import { useNavigateToMainApp } from "../sidebar/mainAppLocation";
-import { SidebarInset } from "../ui/sidebar";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   buildCtStudioHostCatalog,
   buildCtStudioHostThreads,
@@ -84,21 +85,33 @@ function runtimeModeForProvider(provider: ServerProvider | undefined): RuntimeMo
 
 export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
   const gt = useGT();
-  const isActive = useLocation({
-    select: (location) => location.pathname === CT_STUDIO_ROUTE_PATH,
+  const pathname = useLocation({
+    select: (location) => location.pathname,
   });
+  const isActive = pathname === CT_STUDIO_ROUTE_PATH;
   const mounted = useCtStudioStore((state) => state.mounted);
   const connected = useCtStudioStore((state) => state.connected);
+  const modalOpen = useCtStudioStore((state) => state.modalOpen);
+  const badgeCount = useCtStudioStore((state) => state.badgeCount);
   const baseUrl = useCtStudioStore((state) => state.baseUrl);
   const iframeSrc = useCtStudioStore((state) => state.iframeSrc);
   const reloadNonce = useCtStudioStore((state) => state.reloadNonce);
   const pendingNav = useCtStudioStore((state) => state.pendingNav);
   const markBackgroundMounted = useCtStudioStore((state) => state.markBackgroundMounted);
+  const closeModal = useCtStudioStore((state) => state.closeModal);
   const setConnected = useCtStudioStore((state) => state.setConnected);
   const setBadgeCount = useCtStudioStore((state) => state.setBadgeCount);
   const setWorkspaceContext = useCtStudioStore((state) => state.setWorkspaceContext);
   const clearPendingNav = useCtStudioStore((state) => state.clearPendingNav);
   const [offlineFallbackKey, setOfflineFallbackKey] = useState<string | null>(null);
+
+  const isModal = modalOpen && !isActive;
+  const isVisible = isActive || isModal;
+  const presentationMode: "page" | "modal" | "hidden" = isActive
+    ? "page"
+    : isModal
+      ? "modal"
+      : "hidden";
 
   const navigate = useNavigate();
   const navigateToMainApp = useNavigateToMainApp();
@@ -133,8 +146,9 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const lastCatalogDigestRef = useRef<string | null>(null);
   const lastThreadsDigestRef = useRef<string | null>(null);
+  const prevPathnameRef = useRef(pathname);
 
-  const shouldRender = mounted || isActive;
+  const shouldRender = mounted || isVisible;
   const allThreadShells = useThreadShells(shouldRender);
 
   const getCurrentHostCatalog = useEffectEvent(() =>
@@ -423,6 +437,7 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
           environmentId: primaryEnvironmentId,
         });
         if (message.focus === true) {
+          closeModal();
           await navigate({
             to: "/$environmentId/$threadId",
             params: buildThreadRouteParams(scopeThreadRef(primaryEnvironmentId, threadId)),
@@ -493,6 +508,7 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
           environmentId: envId,
         });
         if (message.focus === true) {
+          closeModal();
           await navigate({
             to: "/$environmentId/$threadId",
             params: buildThreadRouteParams(scopeThreadRef(envId, threadId)),
@@ -619,6 +635,7 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
           threadId: targetThreadId,
           environmentId: envId,
         });
+        closeModal();
         await navigate({
           to: "/$environmentId/$threadId",
           params: buildThreadRouteParams(threadRef),
@@ -690,7 +707,7 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- probes local ct-studio service lazily with bounded retries so users without ct-studio incur no background polling noise
   useEffect(() => {
-    if (mounted || isActive || primaryEnvironmentId === null) return;
+    if (mounted || isVisible || primaryEnvironmentId === null) return;
     let cancelled = false;
     let attempts = 0;
     let lastProbeAt = 0;
@@ -733,17 +750,50 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
       window.clearTimeout(secondTimer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [mounted, isActive, primaryEnvironmentId, baseUrl, markBackgroundMounted]);
+  }, [mounted, isVisible, primaryEnvironmentId, baseUrl, markBackgroundMounted]);
 
   const connectionAttemptKey = `${baseUrl}:${reloadNonce}`;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reveals a friendly offline fallback if the active CT Studio iframe fails to handshake within the grace window
   useEffect(() => {
-    if (!isActive || connected) return;
+    if (!isVisible || connected) return;
     const timer = window.setTimeout(() => {
       setOfflineFallbackKey(connectionAttemptKey);
     }, 1800);
     return () => window.clearTimeout(timer);
-  }, [isActive, connected, connectionAttemptKey]);
+  }, [isVisible, connected, connectionAttemptKey]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- dismisses the CT Studio quick-view modal when navigating to another route
+  useEffect(() => {
+    if (prevPathnameRef.current !== pathname) {
+      prevPathnameRef.current = pathname;
+      if (useCtStudioStore.getState().modalOpen) {
+        closeModal();
+      }
+    }
+  }, [pathname, closeModal]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- notifies the embedded iframe of page/modal/hidden presentation mode so Escape closes the modal directly
+  useEffect(() => {
+    if (!shouldRender || !connected) return;
+    postToCtStudioFrame(iframeRef.current, baseUrl, {
+      type: "t3-ct-studio:presentation",
+      mode: presentationMode,
+    });
+  }, [shouldRender, connected, baseUrl, presentationMode]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- binds Escape shortcut to close the CT Studio quick-view modal
+  useEffect(() => {
+    if (!isModal) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.isComposing) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        closeModal();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [isModal, closeModal]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- dispatches postMessage navigation to the persistent iframe without reloading it
   useEffect(() => {
@@ -754,6 +804,7 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
         ticket: pendingNav.ticket,
         stage: pendingNav.stage,
         itemId: pendingNav.itemId,
+        view: pendingNav.view,
       })
     ) {
       clearPendingNav(pendingNav.nonce);
@@ -795,6 +846,7 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
             ? EnvironmentId.make(message.environmentId)
             : primaryEnvironmentId;
           if (!envId) return;
+          closeModal();
           void navigate({
             to: "/$environmentId/$threadId",
             params: {
@@ -823,7 +875,11 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
           setWorkspaceContext(message.context);
           break;
         case "ct-studio:toggle-back":
-          void navigateToMainApp();
+          if (useCtStudioStore.getState().modalOpen) {
+            closeModal();
+          } else {
+            void navigateToMainApp();
+          }
           break;
       }
     };
@@ -835,6 +891,7 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
     primaryEnvironmentId,
     navigate,
     navigateToMainApp,
+    closeModal,
     setConnected,
     setBadgeCount,
     setWorkspaceContext,
@@ -842,35 +899,114 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
 
   if (!shouldRender) return null;
 
-  const showOfflineOverlay = isActive && !connected && offlineFallbackKey === connectionAttemptKey;
+  const showOfflineOverlay = isVisible && !connected && offlineFallbackKey === connectionAttemptKey;
 
   return (
-    <SidebarInset
+    <main
       data-slot="ct-studio-layer"
-      aria-hidden={!isActive}
-      className={cn("flex h-dvh min-h-0 min-w-0 flex-1 flex-col", !isActive && "hidden")}
+      data-mode={isActive ? "page" : isModal ? "modal" : "hidden"}
+      aria-hidden={!isVisible}
+      role={isModal ? "dialog" : undefined}
+      aria-modal={isModal ? true : undefined}
+      aria-label={isModal ? gt("CT Studio") : undefined}
+      onClick={
+        isModal
+          ? (event) => {
+              if (event.target === event.currentTarget) {
+                closeModal();
+              }
+            }
+          : undefined
+      }
+      className={cn(
+        isActive &&
+          "relative flex h-dvh min-h-0 w-full min-w-0 flex-1 flex-col bg-background surface-grain md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ms-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm/5 md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ms-2",
+        isModal &&
+          "fixed inset-0 z-50 flex h-dvh w-screen items-center justify-center bg-black/55 p-4 backdrop-blur-xs sm:p-6",
+        !isVisible && "hidden",
+      )}
     >
-      <div className="relative min-h-0 flex-1">
-        {/* oxlint-disable-next-line react/iframe-missing-sandbox -- embeds the user's own local ct-studio app which needs scripts and same-origin API access */}
-        <iframe
-          key={connectionAttemptKey}
-          ref={iframeRef}
-          title={gt("CT Studio")}
-          src={iframeSrc}
-          onLoad={() => {
-            const host = getCurrentHostCatalog();
-            lastCatalogDigestRef.current = JSON.stringify(host);
-            postToCtStudioFrame(iframeRef.current, baseUrl, {
-              type: "t3-ct-studio:hello",
-              version: 1,
-              host,
-            });
-          }}
-          className={cn("h-full w-full border-0", showOfflineOverlay && "invisible")}
-          allow="clipboard-read; clipboard-write"
-        />
-        {showOfflineOverlay ? <CtStudioOnboardingView /> : null}
+      <div
+        className={cn(
+          "flex min-h-0 flex-col overflow-hidden",
+          isModal
+            ? "h-[min(88vh,920px)] w-[min(92vw,1360px)] rounded-2xl border border-border/80 bg-background shadow-2xl"
+            : "h-full w-full flex-1",
+        )}
+      >
+        {isModal ? (
+          <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-muted/30 px-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <LayoutGridIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="truncate text-xs font-medium text-foreground">
+                {gt("CT Studio")}
+              </span>
+              {badgeCount > 0 ? (
+                <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-md border border-warning/30 bg-warning/15 px-1 text-3xs font-medium tabular-nums text-warning">
+                  {badgeCount > 99 ? "99+" : badgeCount}
+                </span>
+              ) : null}
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={gt("Open CT Studio in full view")}
+                      onClick={() => {
+                        closeModal();
+                        void navigate({ to: "/ct-studio", search: {} });
+                      }}
+                      className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      <ArrowUpRightIcon className="size-3.5" aria-hidden />
+                      <span>{gt("Full view")}</span>
+                    </button>
+                  }
+                />
+                <TooltipPopup side="bottom">{gt("Open CT Studio in full view")}</TooltipPopup>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={gt("Close CT Studio modal")}
+                      onClick={closeModal}
+                      className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      <XIcon className="size-4" aria-hidden />
+                    </button>
+                  }
+                />
+                <TooltipPopup side="bottom">{gt("Close (Esc)")}</TooltipPopup>
+              </Tooltip>
+            </div>
+          </div>
+        ) : null}
+        <div className="relative min-h-0 flex-1">
+          {/* oxlint-disable-next-line react/iframe-missing-sandbox -- embeds the user's own local ct-studio app which needs scripts and same-origin API access */}
+          <iframe
+            key={connectionAttemptKey}
+            ref={iframeRef}
+            title={gt("CT Studio")}
+            src={iframeSrc}
+            onLoad={() => {
+              const host = getCurrentHostCatalog();
+              lastCatalogDigestRef.current = JSON.stringify(host);
+              postToCtStudioFrame(iframeRef.current, baseUrl, {
+                type: "t3-ct-studio:hello",
+                version: 1,
+                host,
+              });
+            }}
+            className={cn("h-full w-full border-0", showOfflineOverlay && "invisible")}
+            allow="clipboard-read; clipboard-write"
+          />
+          {showOfflineOverlay ? <CtStudioOnboardingView /> : null}
+        </div>
       </div>
-    </SidebarInset>
+    </main>
   );
 });
