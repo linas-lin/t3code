@@ -140,8 +140,8 @@ import {
   getProjectFileContents,
   getProjectFileQueryAtom,
   setProjectFileQueryData,
-  useProjectFileQuery,
 } from "./projectFilesQueryState";
+import { useProjectFileWithSymlinkFallback } from "./outsideWorkspaceSymlink";
 
 const NO_FILE_REVISION_ATOM = Atom.make(null);
 
@@ -1288,7 +1288,7 @@ export default function FilePreviewPanel({
   selectedFilePending,
   workspaceMutationId,
 }: FilePreviewPanelProps) {
-  const relativePath =
+  const requestedRelativePath =
     attachment === undefined ? resolveFilePreviewPath(requestedPath, cwd) : requestedPath;
   const draft = typeof composerDraftTarget === "string";
   const gt = useGT();
@@ -1311,6 +1311,13 @@ export default function FilePreviewPanel({
   const openPreview = useAtomCommand(previewEnvironment.open, {
     reportFailure: false,
   });
+  const { relativePath, file } = useProjectFileWithSymlinkFallback(
+    environmentId,
+    cwd,
+    requestedRelativePath,
+    attachment === undefined && requestedRelativePath !== null,
+    m,
+  );
   const isVideo = relativePath !== null && isWorkspaceVideoPreviewPath(relativePath);
   const isAudio = relativePath !== null && !isVideo && isWorkspaceAudioPreviewPath(relativePath);
   const isImage = relativePath !== null && !isVideo && isWorkspaceImagePreviewPath(relativePath);
@@ -1327,13 +1334,6 @@ export default function FilePreviewPanel({
   const fileAccess = useFilesystemReadAccess(environmentId, m);
   const { canReadFiles } = fileAccess;
   const canWriteFiles = useEnvironmentScope(environmentId, AuthFilesystemWriteScope);
-  const file = useProjectFileQuery(
-    environmentId,
-    cwd,
-    relativePath,
-    attachment === undefined && relativePath !== null,
-    m,
-  );
   const [fileRefreshRevision, setFileRefreshRevision] = useState(0);
   const attemptedPath = file.readError?.resolvedPath ?? file.readError?.operationPath;
   // Folder links fail file reads; retain mutation refresh to detect conversion to files. Host folders own
