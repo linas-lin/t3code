@@ -29,7 +29,7 @@ export function getDesktopScheme(
   return isDevelopment ? DESKTOP_DEVELOPMENT_SCHEME : resolveProductionDesktopScheme(variant);
 }
 
-function getDesktopOrigin(isDevelopment: boolean): string {
+export function getDesktopOrigin(isDevelopment: boolean): string {
   return `${getDesktopScheme(isDevelopment)}://${DESKTOP_HOST}`;
 }
 
