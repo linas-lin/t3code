@@ -20,6 +20,8 @@ export interface SlackRelayPublicConfig {
   readonly replyMode: SlackRelayReplyMode;
   readonly replyPrefix: string;
   readonly allowSelfMention: boolean;
+  readonly requireBotMention: boolean;
+  readonly triggerKeywords: ReadonlyArray<string>;
   readonly replayOfflineEvents: boolean;
   readonly addReactions: boolean;
   readonly allowedChannels: ReadonlyArray<string>;
@@ -47,6 +49,8 @@ export interface SlackRelayConfigPatch {
   readonly replyMode?: SlackRelayReplyMode;
   readonly replyPrefix?: string;
   readonly allowSelfMention?: boolean;
+  readonly requireBotMention?: boolean;
+  readonly triggerKeywords?: ReadonlyArray<string>;
   readonly replayOfflineEvents?: boolean;
   readonly addReactions?: boolean;
   readonly allowedChannels?: ReadonlyArray<string>;

@@ -36,8 +36,10 @@ import {
   DEFAULT_SLACK_RELAY_CONFIG,
   formatSlackReplyText,
   formatSlackThreadTitle,
+  isSlackNoReplyResponse,
   mergeSlackRelayConfigPatch,
   normalizeSlackRelayConfig,
+  selectSlackThreadHistory,
   shouldProcessSlackRelayEvent,
   toPublicSlackRelayConfig,
   type SlackRelayConfig,
@@ -47,6 +49,7 @@ import {
   type SlackRelayPendingDraft,
   type SlackRelayPublicConfig,
   type SlackRelayStatus,
+  type SlackThreadHistoryItem,
 } from "./slackRelayCore.ts";
 
 export class SlackRelayError extends Schema.TaggedError<SlackRelayError>()("SlackRelayError", {
@@ -251,6 +254,23 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
       const reconnectQueue = yield* Queue.unbounded<"connect" | "reconnect_later">();
       const channelNameCache = new Map<string, string>();
       const userNameCache = new Map<string, string>();
+      const botUserIdCache = new Map<string, string>();
+
+      const resolveBotUserId = Effect.fn("SlackRelayService.resolveBotUserId")(function* (
+        cfg: SlackRelayConfig,
+      ) {
+        const token = cfg.botToken;
+        if (!token) return null;
+        const cached = botUserIdCache.get(token);
+        if (cached !== undefined) return cached;
+        const res = yield* slackApiCall("auth.test", token, {}, { isGet: true }).pipe(
+          Effect.orElseSucceed(() => null),
+        );
+        const uid = typeof res?.user_id === "string" ? res.user_id.trim() : "";
+        if (!uid) return null;
+        botUserIdCache.set(token, uid);
+        return uid;
+      });
 
       const resolveChannelName = Effect.fn("SlackRelayService.resolveChannelName")(function* (
         cfg: SlackRelayConfig,
@@ -444,20 +464,50 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
       ) {
         const token = cfg.botToken || cfg.userToken;
         if (!token || !event.thread_ts) {
-          return [] as ReadonlyArray<{ readonly user?: string; readonly text?: string }>;
+          return [] as ReadonlyArray<SlackThreadHistoryItem>;
         }
-        const res = yield* slackApiCall(
-          "conversations.replies",
-          token,
-          { channel: event.channel, ts: event.thread_ts, limit: 15 },
-          { isGet: true },
-        ).pipe(Effect.orElseSucceed(() => null));
-        if (!res || !Array.isArray(res.messages)) {
-          return [] as ReadonlyArray<{ readonly user?: string; readonly text?: string }>;
+        const allMessages: Array<{ ts?: string; user?: string; text?: string }> = [];
+        let cursor: string | undefined;
+        const maxPages = 3;
+        for (let page = 0; page < maxPages; page += 1) {
+          const res = yield* slackApiCall(
+            "conversations.replies",
+            token,
+            { channel: event.channel, ts: event.thread_ts, limit: 100, cursor },
+            { isGet: true },
+          ).pipe(Effect.orElseSucceed(() => null));
+          if (!res || !Array.isArray(res.messages)) break;
+          allMessages.push(
+            ...(res.messages as Array<{ ts?: string; user?: string; text?: string }>),
+          );
+          const meta = res.response_metadata as { next_cursor?: string } | undefined;
+          const next = typeof meta?.next_cursor === "string" ? meta.next_cursor.trim() : "";
+          if (!next) break;
+          cursor = next;
         }
-        return (res.messages as Array<{ ts?: string; user?: string; text?: string }>)
-          .filter((item) => item.ts !== event.ts)
-          .slice(-10);
+        const selected = selectSlackThreadHistory(allMessages, event.ts, 25);
+        const uniqueUsers = [
+          ...new Set(
+            selected
+              .map((item) => item.user)
+              .filter(
+                (uid): uid is string =>
+                  typeof uid === "string" && uid.length > 0 && uid !== "system",
+              ),
+          ),
+        ];
+        yield* Effect.forEach(uniqueUsers, (uid) => resolveUserName(cfg, uid), {
+          concurrency: 4,
+          discard: true,
+        });
+        return selected.map((item): SlackThreadHistoryItem => {
+          if (item.user === "system") return { ...item, senderLabel: "system" };
+          const displayName = item.user ? userNameCache.get(item.user) : undefined;
+          return {
+            ...item,
+            senderLabel: displayName ? `${displayName} (${item.user})` : item.user || "unknown",
+          };
+        });
       });
 
       const resolveTargetProjectAndModel = Effect.fn(
@@ -564,7 +614,12 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         lastEventAt = DateTime.formatIso(yield* DateTime.now);
         const currentConfig = config;
         const processedSet = new Set(state.processed);
-        const check = shouldProcessSlackRelayEvent(payload, currentConfig, processedSet);
+        const botUserId = currentConfig.requireBotMention
+          ? yield* resolveBotUserId(currentConfig)
+          : null;
+        const check = shouldProcessSlackRelayEvent(payload, currentConfig, processedSet, {
+          botUserId,
+        });
         if (!check.ok) {
           return;
         }
@@ -684,8 +739,13 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         }
 
         const replyBody = yield* waitForAssistantReply(threadId, runId);
+        if (isSlackNoReplyResponse(replyBody)) {
+          yield* tryReaction("remove", currentConfig, event.channel, event.ts, "eyes");
+          return;
+        }
         const formatted = formatSlackReplyText(replyBody, currentConfig);
         if (!formatted) {
+          yield* tryReaction("remove", currentConfig, event.channel, event.ts, "eyes");
           return;
         }
 

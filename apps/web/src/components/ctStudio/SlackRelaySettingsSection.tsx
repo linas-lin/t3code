@@ -64,6 +64,13 @@ function parseCsvList(value: string): ReadonlyArray<string> {
     .filter(Boolean);
 }
 
+function parseKeywordList(value: string): ReadonlyArray<string> {
+  return value
+    .split(/[,，\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export function SlackRelaySettingsSection() {
   const gt = useGT();
   const navigate = useNavigate();
@@ -95,6 +102,8 @@ export function SlackRelaySettingsSection() {
   const [customPrompt, setCustomPrompt] = useState("");
   const [promptFilePath, setPromptFilePath] = useState("");
   const [allowSelfMention, setAllowSelfMention] = useState(true);
+  const [requireBotMention, setRequireBotMention] = useState(false);
+  const [triggerKeywordsText, setTriggerKeywordsText] = useState("");
   const [addReactions, setAddReactions] = useState(true);
   const [replayOfflineEvents, setReplayOfflineEvents] = useState(false);
   const [allowedChannelsText, setAllowedChannelsText] = useState("");
@@ -126,6 +135,8 @@ export function SlackRelaySettingsSection() {
     setCustomPrompt(c.customPrompt);
     setPromptFilePath(c.promptFilePath);
     setAllowSelfMention(c.allowSelfMention);
+    setRequireBotMention(c.requireBotMention);
+    setTriggerKeywordsText(c.triggerKeywords.join(", "));
     setAddReactions(c.addReactions);
     setReplayOfflineEvents(c.replayOfflineEvents);
     setAllowedChannelsText(c.allowedChannels.join(", "));
@@ -163,6 +174,8 @@ export function SlackRelaySettingsSection() {
         setCustomPrompt(c.customPrompt);
         setPromptFilePath(c.promptFilePath);
         setAllowSelfMention(c.allowSelfMention);
+        setRequireBotMention(c.requireBotMention);
+        setTriggerKeywordsText(c.triggerKeywords.join(", "));
         setAddReactions(c.addReactions);
         setReplayOfflineEvents(c.replayOfflineEvents);
         setAllowedChannelsText(c.allowedChannels.join(", "));
@@ -258,6 +271,8 @@ export function SlackRelaySettingsSection() {
         customPrompt,
         promptFilePath,
         allowSelfMention,
+        requireBotMention,
+        triggerKeywords: parseKeywordList(triggerKeywordsText),
         addReactions,
         replayOfflineEvents,
         allowedChannels: parseCsvList(allowedChannelsText),
@@ -273,11 +288,17 @@ export function SlackRelaySettingsSection() {
   };
 
   const handleToggleSwitch = async (
-    key: "enabled" | "allowSelfMention" | "addReactions" | "replayOfflineEvents",
+    key:
+      | "enabled"
+      | "allowSelfMention"
+      | "requireBotMention"
+      | "addReactions"
+      | "replayOfflineEvents",
     checked: boolean,
   ) => {
     if (key === "enabled") setEnabled(checked);
     else if (key === "allowSelfMention") setAllowSelfMention(checked);
+    else if (key === "requireBotMention") setRequireBotMention(checked);
     else if (key === "addReactions") setAddReactions(checked);
     else setReplayOfflineEvents(checked);
 
@@ -292,6 +313,7 @@ export function SlackRelaySettingsSection() {
     } catch (err) {
       if (key === "enabled") setEnabled(!checked);
       else if (key === "allowSelfMention") setAllowSelfMention(!checked);
+      else if (key === "requireBotMention") setRequireBotMention(!checked);
       else if (key === "addReactions") setAddReactions(!checked);
       else setReplayOfflineEvents(!checked);
       setError(err instanceof Error ? err.message : gt("Failed to toggle switch"));
@@ -775,6 +797,26 @@ export function SlackRelaySettingsSection() {
       />
 
       <SettingsRow
+        id="ct-studio-slack-relay-trigger-keywords"
+        title={gt("Trigger keywords (optional)")}
+        description={
+          <T>
+            Comma-separated keywords (case-insensitive). When set, messages must include at least
+            one keyword to trigger the AI agent so normal personal @mentions stay untouched.
+          </T>
+        }
+        control={
+          <input
+            type="text"
+            value={triggerKeywordsText}
+            onChange={(event) => setTriggerKeywordsText(event.target.value)}
+            placeholder={gt("e.g. ai, bot, /ask")}
+            className={INPUT_CLASS}
+          />
+        }
+      />
+
+      <SettingsRow
         id="ct-studio-slack-relay-allowlists"
         title={gt("Channel / user allowlists (optional)")}
         description={
@@ -806,6 +848,15 @@ export function SlackRelaySettingsSection() {
         description={<T>Toggle switches apply immediately without clicking Save.</T>}
         control={
           <div className="flex flex-col gap-2 text-xs">
+            <label className="flex items-center justify-between gap-3">
+              <span>
+                <T>Require @bot mention alongside @me</T>
+              </span>
+              <Switch
+                checked={requireBotMention}
+                onCheckedChange={(checked) => void handleToggleSwitch("requireBotMention", checked)}
+              />
+            </label>
             <label className="flex items-center justify-between gap-3">
               <span>
                 <T>Allow self @mentions</T>

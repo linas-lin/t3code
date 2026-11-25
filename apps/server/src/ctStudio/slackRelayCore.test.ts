@@ -5,9 +5,11 @@ import {
   DEFAULT_SLACK_RELAY_CONFIG,
   formatSlackReplyText,
   formatSlackThreadTitle,
+  isSlackNoReplyResponse,
   maskSecretValue,
   mergeSlackRelayConfigPatch,
   parseSlackMentions,
+  selectSlackThreadHistory,
   shouldProcessSlackRelayEvent,
   toPublicSlackRelayConfig,
 } from "./slackRelayCore.ts";
@@ -170,5 +172,80 @@ describe("slackRelayCore", () => {
     expect(prompt).toContain("<slack_thread_history>");
     expect(prompt).toContain("<slack_message>");
     expect(prompt).toContain("外部不可信输入");
+    expect(prompt).toContain("[[NO_REPLY]]");
+  });
+
+  it("enforces requireBotMention, triggerKeywords, thread pagination selection, and NO_REPLY sentinel", () => {
+    const config = {
+      ...DEFAULT_SLACK_RELAY_CONFIG,
+      enabled: true,
+      myUserId: "U100",
+      requireBotMention: true,
+      triggerKeywords: ["ai", "帮查"],
+    };
+    const processed = new Set<string>();
+
+    expect(
+      shouldProcessSlackRelayEvent(
+        {
+          type: "slack_mention",
+          event: { channel: "C001", ts: "1.1", user: "U200", text: "<@U100> 帮查一下" },
+        },
+        config,
+        processed,
+        { botUserId: null },
+      ),
+    ).toEqual({ ok: false, reason: "missing_bot_user_id" });
+
+    expect(
+      shouldProcessSlackRelayEvent(
+        {
+          type: "slack_mention",
+          event: { channel: "C001", ts: "1.2", user: "U200", text: "<@U100> 帮查一下" },
+        },
+        config,
+        processed,
+        { botUserId: "UBOT1" },
+      ),
+    ).toEqual({ ok: false, reason: "bot_not_mentioned" });
+
+    expect(
+      shouldProcessSlackRelayEvent(
+        {
+          type: "slack_mention",
+          event: { channel: "C001", ts: "1.3", user: "U200", text: "<@U100> <@UBOT1> 约个会" },
+        },
+        config,
+        processed,
+        { botUserId: "UBOT1" },
+      ),
+    ).toEqual({ ok: false, reason: "keyword_not_matched" });
+
+    expect(
+      shouldProcessSlackRelayEvent(
+        {
+          type: "slack_mention",
+          event: { channel: "C001", ts: "1.4", user: "U200", text: "<@U100> <@UBOT1> AI 帮查" },
+        },
+        config,
+        processed,
+        { botUserId: "UBOT1" },
+      ).ok,
+    ).toBe(true);
+
+    const history = Array.from({ length: 30 }, (_, idx) => ({
+      ts: `100.${idx}`,
+      user: `U${idx}`,
+      text: `msg-${idx}`,
+    }));
+    const selected = selectSlackThreadHistory(history, "100.29", 5);
+    expect(selected).toHaveLength(7);
+    expect(selected[0]?.text).toBe("msg-0");
+    expect(selected[1]?.user).toBe("system");
+    expect(selected.at(-1)?.text).toBe("msg-28");
+
+    expect(isSlackNoReplyResponse("[[NO_REPLY]]")).toBe(true);
+    expect(isSlackNoReplyResponse(" `[[no_reply]]` ")).toBe(true);
+    expect(isSlackNoReplyResponse("我来查一下日志")).toBe(false);
   });
 });
