@@ -1,13 +1,7 @@
 export {
-  extractSuggestedGroupFromThread,
-  groupProjectActiveThreads,
+  hasGroupedThreadsInSingleProjectScope,
   parseThreadGroupDropId,
-  readThreadGroupName,
-  readThreadTags,
-  threadGroupExpansionKey,
-  threadUngroupedDropId,
-  type SidebarThreadGroupBucket,
+  THREAD_GROUP_LIST_CLASS,
 } from "./threadGrouping.logic";
-export { SidebarThreadGroupHeader, SidebarUngroupedDropZone } from "./SidebarThreadGroupHeader";
-export { ThreadGroupNameDialog } from "./ThreadGroupNameDialog";
 export { useDraftThreadGroupStore } from "./draftThreadGroupStore";
+export { useSidebarThreadGrouping } from "./useSidebarThreadGrouping";

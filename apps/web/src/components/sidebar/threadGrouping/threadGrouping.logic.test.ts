@@ -4,6 +4,7 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import {
   extractSuggestedGroupFromThread,
   groupProjectActiveThreads,
+  hasGroupedThreadsInSingleProjectScope,
   parseThreadGroupDropId,
   readThreadGroupName,
   threadGroupDropId,
@@ -45,7 +46,7 @@ describe("threadGrouping.logic", () => {
     expect(result.ungrouped.map((t) => t.id)).toEqual(["t-plain-1", "t-plain-2"]);
   });
 
-  it("keeps the active route thread visible while collapsed and reports hidden threads", () => {
+  it("hides all member rows when collapsed and marks hasActiveRouteThread on the group", () => {
     const threads: MockThread[] = [
       { id: "t-1", tags: ["group:BLUE-123"] },
       { id: "t-2", tags: ["group:BLUE-123"] },
@@ -55,6 +56,7 @@ describe("threadGrouping.logic", () => {
     const expansionKey = threadGroupExpansionKey("proj-a", "BLUE-123");
     const result = groupProjectActiveThreads({
       projectKey: "proj-a",
+      nested: true,
       threads,
       expandedByKey: { [expansionKey]: false },
       routeThreadKey: "t-2",
@@ -64,9 +66,46 @@ describe("threadGrouping.logic", () => {
     expect(result.groups).toHaveLength(1);
     const group = result.groups[0]!;
     expect(group.collapsed).toBe(true);
-    expect(group.threads.map((t) => t.id)).toEqual(["t-2"]);
-    expect(group.hiddenThreads.map((t) => t.id)).toEqual(["t-1", "t-3"]);
+    expect(group.hasActiveRouteThread).toBe(true);
+    expect(group.rowId).toBe("group:nested:proj-a::BLUE-123");
+    expect(group.threads).toEqual([]);
+    expect(group.hiddenThreads.map((t) => t.id)).toEqual(["t-1", "t-2", "t-3"]);
     expect(group.allThreads.map((t) => t.id)).toEqual(["t-1", "t-2", "t-3"]);
+  });
+
+  it("detects when a single-project scope has grouped active threads", () => {
+    const scope = new Set(["env-1:proj-1"]);
+    expect(
+      hasGroupedThreadsInSingleProjectScope({
+        scopedProjectKeys: scope,
+        isSingleProjectScope: true,
+        threads: [
+          {
+            environmentId: "env-1" as EnvironmentThreadShell["environmentId"],
+            projectId: "proj-1" as EnvironmentThreadShell["projectId"],
+            pinnedAt: null,
+            settledOverride: null,
+            tags: ["group:BLUE-123"],
+          },
+        ],
+      }),
+    ).toBe(true);
+
+    expect(
+      hasGroupedThreadsInSingleProjectScope({
+        scopedProjectKeys: scope,
+        isSingleProjectScope: false,
+        threads: [
+          {
+            environmentId: "env-1" as EnvironmentThreadShell["environmentId"],
+            projectId: "proj-1" as EnvironmentThreadShell["projectId"],
+            pinnedAt: null,
+            settledOverride: null,
+            tags: ["group:BLUE-123"],
+          },
+        ],
+      }),
+    ).toBe(false);
   });
 
   it("falls back to thread.source.tags and picks the last valid group tag", () => {

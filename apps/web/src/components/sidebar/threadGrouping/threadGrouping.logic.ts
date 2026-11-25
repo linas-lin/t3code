@@ -12,6 +12,27 @@ const GROUP_DROP_PREFIX = "sidebar-group-drop:";
 const UNGROUPED_DROP_PREFIX = "sidebar-ungrouped-drop:";
 const KEY_SEPARATOR = "::";
 
+export const THREAD_GROUP_LIST_CLASS = [
+  "[&>li:has([data-sidebar-parent^='group:top:'])]:relative",
+  "[&>li:has([data-sidebar-parent^='group:top:'])]:pl-4",
+  "[&>li:has([data-sidebar-parent^='group:top:'])]:before:pointer-events-none",
+  "[&>li:has([data-sidebar-parent^='group:top:'])]:before:absolute",
+  "[&>li:has([data-sidebar-parent^='group:top:'])]:before:inset-y-0",
+  "[&>li:has([data-sidebar-parent^='group:top:'])]:before:left-2.5",
+  "[&>li:has([data-sidebar-parent^='group:top:'])]:before:w-px",
+  "[&>li:has([data-sidebar-parent^='group:top:'])]:before:bg-sidebar-border/80",
+  "[&>li:has([data-sidebar-parent^='group:top:'])]:before:content-['']",
+  "[&>li:has([data-sidebar-parent^='group:nested:'])]:relative",
+  "[&>li:has([data-sidebar-parent^='group:nested:'])]:pl-7",
+  "[&>li:has([data-sidebar-parent^='group:nested:'])]:before:pointer-events-none",
+  "[&>li:has([data-sidebar-parent^='group:nested:'])]:before:absolute",
+  "[&>li:has([data-sidebar-parent^='group:nested:'])]:before:inset-y-0",
+  "[&>li:has([data-sidebar-parent^='group:nested:'])]:before:left-5.5",
+  "[&>li:has([data-sidebar-parent^='group:nested:'])]:before:w-px",
+  "[&>li:has([data-sidebar-parent^='group:nested:'])]:before:bg-sidebar-border/80",
+  "[&>li:has([data-sidebar-parent^='group:nested:'])]:before:content-['']",
+].join(" ");
+
 export function readThreadTags(thread: {
   readonly tags?: ReadonlyArray<string> | undefined;
   readonly source?: { readonly tags?: ReadonlyArray<string> | undefined } | undefined;
@@ -30,8 +51,8 @@ export function threadGroupExpansionKey(projectKey: string, groupName: string): 
   return `${projectKey}${KEY_SEPARATOR}${groupName}`;
 }
 
-function sidebarThreadGroupRowId(projectKey: string, groupName: string): string {
-  return `group:${projectKey}${KEY_SEPARATOR}${groupName}`;
+function sidebarThreadGroupRowId(projectKey: string, groupName: string, nested: boolean): string {
+  return `group:${nested ? "nested" : "top"}:${projectKey}${KEY_SEPARATOR}${groupName}`;
 }
 
 export function threadGroupDropId(projectKey: string, groupName: string): string {
@@ -71,6 +92,7 @@ export interface SidebarThreadGroupBucket<T> {
   readonly rowId: string;
   readonly dropId: string;
   readonly collapsed: boolean;
+  readonly hasActiveRouteThread: boolean;
   readonly threads: readonly T[];
   readonly allThreads: readonly T[];
   readonly hiddenThreads: readonly T[];
@@ -83,9 +105,8 @@ export interface ProjectActiveThreadsGroupingResult<T> {
 }
 
 /**
- * Groups active threads within a single project by their `group:*` tag.
- * Preserves the caller's thread order inside each group and orders every group
- * uniformly by its leading (most recent under the active sort order) thread.
+ * Groups active threads within one project by `group:*` tag, preserving input order inside each
+ * group and ordering groups by their leading thread. Collapsed groups hide all member rows.
  */
 export function groupProjectActiveThreads<
   T extends Pick<EnvironmentThreadShell, "tags"> & {
@@ -93,6 +114,7 @@ export function groupProjectActiveThreads<
   },
 >(input: {
   readonly projectKey: string;
+  readonly nested?: boolean;
   readonly threads: readonly T[];
   readonly expandedByKey: Readonly<Record<string, boolean>>;
   readonly routeThreadKey?: string | null;
@@ -117,32 +139,25 @@ export function groupProjectActiveThreads<
     bucket.push(thread);
   }
 
+  const nested = input.nested === true;
   const groups: SidebarThreadGroupBucket<T>[] = orderedGroupNames.map((groupName) => {
     const allThreads = bucketMap.get(groupName)!;
     const expansionKey = threadGroupExpansionKey(input.projectKey, groupName);
     const collapsed = input.expandedByKey[expansionKey] === false;
-    const visibleThreads = collapsed
-      ? allThreads.filter(
-          (thread) =>
-            input.routeThreadKey != null && input.getThreadKey(thread) === input.routeThreadKey,
-        )
-      : allThreads;
-    const hiddenThreads = collapsed
-      ? allThreads.filter(
-          (thread) =>
-            input.routeThreadKey == null || input.getThreadKey(thread) !== input.routeThreadKey,
-        )
-      : [];
+    const hasActiveRouteThread =
+      input.routeThreadKey != null &&
+      allThreads.some((thread) => input.getThreadKey(thread) === input.routeThreadKey);
     return {
       projectKey: input.projectKey,
       groupName,
       expansionKey,
-      rowId: sidebarThreadGroupRowId(input.projectKey, groupName),
+      rowId: sidebarThreadGroupRowId(input.projectKey, groupName, nested),
       dropId: threadGroupDropId(input.projectKey, groupName),
       collapsed,
-      threads: visibleThreads,
+      hasActiveRouteThread,
+      threads: collapsed ? [] : allThreads,
       allThreads,
-      hiddenThreads,
+      hiddenThreads: collapsed ? allThreads : [],
     };
   });
 
@@ -151,6 +166,32 @@ export function groupProjectActiveThreads<
     ungrouped,
     groupNames: orderedGroupNames,
   };
+}
+
+/**
+ * Returns true when a single-project filter scope has at least one non-settled,
+ * non-pinned thread carrying a `group:*` tag so the Working shelf can stay off
+ * and keep working threads inside their group.
+ */
+export function hasGroupedThreadsInSingleProjectScope(input: {
+  readonly scopedProjectKeys: ReadonlySet<string> | null;
+  readonly isSingleProjectScope: boolean;
+  readonly threads: ReadonlyArray<
+    Pick<
+      EnvironmentThreadShell,
+      "environmentId" | "projectId" | "pinnedAt" | "settledOverride" | "tags"
+    > & {
+      readonly source?: { readonly tags?: ReadonlyArray<string> | undefined } | undefined;
+    }
+  >;
+}): boolean {
+  if (!input.isSingleProjectScope || input.scopedProjectKeys === null) return false;
+  for (const thread of input.threads) {
+    if (!input.scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)) continue;
+    if (thread.pinnedAt != null || thread.settledOverride === "settled") continue;
+    if (readThreadGroupName(thread) !== null) return true;
+  }
+  return false;
 }
 
 function extractUniqueTicketKey(text: string | null | undefined): string | null {

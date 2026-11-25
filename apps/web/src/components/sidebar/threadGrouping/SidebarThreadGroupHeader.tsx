@@ -17,7 +17,7 @@ const GROUP_DOT_CLASS_NAME = {
   attention: "bg-warning",
   failed: "bg-error",
   unread: "bg-success",
-  working: "bg-info",
+  working: "bg-info animate-pulse",
 } as const;
 
 const GROUP_DOT_LABEL = {
@@ -34,6 +34,7 @@ export const SidebarThreadGroupHeader = memo(function SidebarThreadGroupHeader(p
   readonly dropId: string;
   readonly nested?: boolean;
   readonly collapsed: boolean;
+  readonly containsActiveThread?: boolean;
   readonly totalCount: number;
   readonly hiddenThreads: readonly EnvironmentThreadShell[];
   readonly isDropTarget?: boolean;
@@ -59,6 +60,7 @@ export const SidebarThreadGroupHeader = memo(function SidebarThreadGroupHeader(p
       )
     : null;
   const highlighted = isOver || props.isDropTarget === true;
+  const showActiveBadge = props.collapsed && props.containsActiveThread === true;
 
   return (
     <li
@@ -81,16 +83,35 @@ export const SidebarThreadGroupHeader = memo(function SidebarThreadGroupHeader(p
           props.onContextMenu({ x: event.clientX, y: event.clientY }, contextMenuSourceOf(event));
         }}
         className={cn(
-          "flex h-7 w-full cursor-pointer items-center gap-2 rounded-(--control-radius) px-(--sidebar-row-content-inset) text-left outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          "relative flex h-7 w-full cursor-pointer items-center gap-2 rounded-(--control-radius) px-(--sidebar-row-content-inset) text-left outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          showActiveBadge &&
+            "bg-sidebar-row-active text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70",
           highlighted && "bg-sidebar-row-hover ring-1 ring-inset ring-primary/60",
         )}
       >
+        {showActiveBadge ? (
+          <span
+            aria-hidden
+            className="absolute inset-y-1.5 left-0.5 w-0.5 rounded-full bg-primary/80"
+          />
+        ) : null}
         {props.collapsed ? (
-          <FolderIcon aria-hidden className="size-3.5 shrink-0 text-sidebar-muted-foreground" />
+          <FolderIcon
+            aria-hidden
+            className={cn(
+              "size-3.5 shrink-0",
+              showActiveBadge ? "text-sidebar-foreground/90" : "text-sidebar-muted-foreground",
+            )}
+          />
         ) : (
           <FolderOpenIcon aria-hidden className="size-3.5 shrink-0 text-sidebar-muted-foreground" />
         )}
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-sidebar-foreground/85">
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-xs font-medium",
+            showActiveBadge ? "text-sidebar-foreground" : "text-sidebar-foreground/85",
+          )}
+        >
           {props.groupName}
         </span>
         {dot ? (
