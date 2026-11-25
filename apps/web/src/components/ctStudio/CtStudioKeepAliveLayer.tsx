@@ -8,6 +8,7 @@ import {
   EnvironmentId,
   ProviderInstanceId,
   ThreadId,
+  toThreadGroupTag,
   type ModelSelection,
   type RuntimeMode,
   type ServerProvider,
@@ -43,7 +44,7 @@ import {
   type CtStudioInboundMessage,
   type CtStudioOutboundMessage,
 } from "./ctStudioBridge";
-import { isTrustedCtStudioOrigin } from "./ctStudioConfig";
+import { extractTicketKey, isTrustedCtStudioOrigin } from "./ctStudioConfig";
 import { CtStudioOnboardingView } from "./CtStudioOnboardingView";
 import { useCtStudioStore } from "./ctStudioStore";
 
@@ -138,6 +139,7 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
     reportFailure: false,
   });
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
+  const setThreadTag = useOrchestrationCommand(threadEnvironment.setTag, { reportFailure: false });
   const updateProject = useOrchestrationCommand(projectEnvironment.update, {
     reportFailure: false,
   });
@@ -427,6 +429,22 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
         });
         if (result._tag === "Failure") {
           throw squashAtomCommandFailure(result);
+        }
+
+        const resolvedGroupName =
+          message.group ??
+          extractTicketKey(message.title, message.branch, message.worktreePath) ??
+          null;
+        const groupTag = resolvedGroupName ? toThreadGroupTag(resolvedGroupName) : null;
+        if (groupTag !== null) {
+          void setThreadTag({
+            environmentId: primaryEnvironmentId,
+            input: {
+              threadId,
+              tag: groupTag,
+              tagged: true,
+            },
+          });
         }
 
         reply({

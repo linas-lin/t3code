@@ -12,12 +12,15 @@ import {
   reorderProjects,
   resolveProjectExpanded,
   setProjectExpanded,
+  setThreadGroupExpanded,
+  toggleThreadGroupExpanded,
   type UiState,
 } from "./uiStateStore";
 
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
+    threadGroupExpandedByKey: {},
     projectOrder: [],
     sidebarProjectScopeKeys: [],
     threadLastVisitedAtById: {},
@@ -65,6 +68,25 @@ describe("uiStateStore pure functions", () => {
     );
     expect(resolveProjectExpanded({ [legacyKey]: false }, ["new-logical", legacyKey])).toBe(false);
     expect(resolveProjectExpanded({}, ["new-logical"])).toBe(true);
+  });
+
+  it("toggles and persists per-project thread group expansion keys", () => {
+    const initialState = makeUiState();
+    const collapsed = toggleThreadGroupExpanded(initialState, "proj-a::BLUE-123");
+    expect(collapsed.threadGroupExpandedByKey["proj-a::BLUE-123"]).toBe(false);
+    const expanded = setThreadGroupExpanded(collapsed, "proj-a::BLUE-123", true);
+    expect(expanded.threadGroupExpandedByKey["proj-a::BLUE-123"]).toBe(true);
+
+    const parsed = parsePersistedState({
+      threadGroupExpandedByKey: {
+        "proj-a::BLUE-123": false,
+        "proj-b::BLUE-123": true,
+      },
+    });
+    expect(parsed.threadGroupExpandedByKey).toEqual({
+      "proj-a::BLUE-123": false,
+      "proj-b::BLUE-123": true,
+    });
   });
 
   it("sets expansion for every stable key belonging to a logical project", () => {
@@ -120,6 +142,7 @@ describe("parsePersistedState", () => {
       projectExpandedById: {
         logical: false,
       },
+      threadGroupExpandedByKey: {},
       projectOrder: ["physical-b", "physical-a"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
@@ -231,6 +254,7 @@ describe("uiStateStore persistence", () => {
       projectExpandedById: {
         logical: false,
       },
+      threadGroupExpandedByKey: {},
       projectOrder: ["physical-b", "physical-a"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",

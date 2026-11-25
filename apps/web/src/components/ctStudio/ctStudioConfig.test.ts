@@ -235,6 +235,7 @@ describe("parseCtStudioInboundMessage", () => {
         },
         interactionMode: "plan",
         focus: false,
+        group: " DEMO-123 ",
       }),
     ).toEqual({
       type: "ct-studio:start-thread",
@@ -260,6 +261,7 @@ describe("parseCtStudioInboundMessage", () => {
       },
       interactionMode: "plan",
       focus: false,
+      group: "DEMO-123",
     });
     expect(
       parseCtStudioInboundMessage({

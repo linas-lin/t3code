@@ -30,6 +30,7 @@ import {
   type ScopedThreadRef,
   type ThreadContextRecord,
   type ThreadId,
+  toThreadGroupTag,
   ProviderInteractionMode,
   RuntimeMode,
 } from "@t3tools/contracts";
@@ -68,6 +69,7 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { newMessageId, newThreadId } from "~/lib/utils";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useDraftThreadGroupStore } from "../sidebar/threadGrouping";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import {
   beginBackgroundDraftSubmissionByRef,
@@ -381,6 +383,9 @@ export function useComposerSend(input: ComposerSendInput) {
   const navigate = useNavigate();
   const clientSettingsHydrated = useClientSettingsHydrated();
   const startThreadTurn = useOrchestrationCommand(threadEnvironment.startTurn, {
+    reportFailure: false,
+  });
+  const setThreadTag = useOrchestrationCommand(threadEnvironment.setTag, {
     reportFailure: false,
   });
   const uploadThreadFeedback = useOrchestrationCommand(threadEnvironment.uploadFeedback, {
@@ -1538,6 +1543,9 @@ export function useComposerSend(input: ComposerSendInput) {
             draftId === null ? null : useComposerDraftStore.getState().getDraftSession(draftId),
           )
         : null;
+      const draftGroupName = isLocalDraftThread
+        ? useDraftThreadGroupStore.getState().getDraftGroupName(draftId)
+        : null;
       if (backgroundThreadRef) beginBackgroundDraftSubmissionByRef(backgroundThreadRef);
       const startPromise = startThreadTurn({
         environmentId,
@@ -1597,6 +1605,20 @@ export function useComposerSend(input: ComposerSendInput) {
             scopeThreadRef(environmentId, threadIdForSend),
             checkoutPullRequestUrl,
           );
+        }
+        if (draftGroupName) {
+          useDraftThreadGroupStore.getState().consumeDraftGroupName(draftId);
+          const groupTag = toThreadGroupTag(draftGroupName);
+          if (groupTag !== null) {
+            void setThreadTag({
+              environmentId,
+              input: {
+                threadId: threadIdForSend,
+                tag: groupTag,
+                tagged: true,
+              },
+            });
+          }
         }
         setKeepFullHistory(routeThreadKey, false);
         if (freshArm !== undefined) disarmFreshSession(routeThreadKey, freshArm);

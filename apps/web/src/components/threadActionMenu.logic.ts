@@ -8,6 +8,10 @@ export type ThreadActionMenuId =
   | "find"
   | "new-thread-on-branch"
   | "filter-by-project"
+  | "group"
+  | `group:set:${string}`
+  | "group:new"
+  | "group:clear"
   | "turn-into-project"
   | "project-settings"
   | "pin"
@@ -103,6 +107,11 @@ export interface ThreadActionMenuState {
     readonly label: string;
     readonly isActive: boolean;
   } | null;
+  readonly threadGroup?: {
+    readonly currentGroup: string | null;
+    readonly availableGroups: ReadonlyArray<string>;
+    readonly suggestedGroup: string | null;
+  } | null;
   readonly isPinned: boolean;
   readonly isSettled: boolean;
   readonly autoSettleEnabled: boolean;
@@ -155,6 +164,55 @@ export function buildThreadActionMenuItems(
             id: "new-thread-on-branch" as const,
             label: resolve(msg("New thread on {branch}", { branch: state.branch })),
             icon: "message-square-plus",
+          },
+        ]
+      : []),
+    ...(state.threadGroup
+      ? [
+          {
+            id: "group" as const,
+            label: state.threadGroup.currentGroup
+              ? resolve(msg("Group ({group})", { group: state.threadGroup.currentGroup }))
+              : resolve(msg("Move to group")),
+            icon: "folder",
+            children: [
+              ...state.threadGroup.availableGroups.map((groupName) => ({
+                id: `group:set:${groupName}` as const,
+                label: groupName,
+                checked: state.threadGroup?.currentGroup === groupName,
+              })),
+              ...(state.threadGroup.suggestedGroup &&
+              !state.threadGroup.availableGroups.includes(state.threadGroup.suggestedGroup)
+                ? [
+                    {
+                      id: `group:set:${state.threadGroup.suggestedGroup}` as const,
+                      label: resolve(
+                        msg('Create "{group}"', { group: state.threadGroup.suggestedGroup }),
+                      ),
+                      icon: "folder-plus",
+                      separatorBefore: state.threadGroup.availableGroups.length > 0,
+                    },
+                  ]
+                : []),
+              {
+                id: "group:new" as const,
+                label: resolve(msg("New group…")),
+                icon: "folder-plus",
+                separatorBefore:
+                  state.threadGroup.availableGroups.length > 0 ||
+                  Boolean(state.threadGroup.suggestedGroup),
+              },
+              ...(state.threadGroup.currentGroup !== null
+                ? [
+                    {
+                      id: "group:clear" as const,
+                      label: resolve(msg("Remove from group")),
+                      icon: "folder-minus",
+                      separatorBefore: true,
+                    },
+                  ]
+                : []),
+            ],
           },
         ]
       : []),

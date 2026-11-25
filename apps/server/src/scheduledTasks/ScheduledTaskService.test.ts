@@ -824,6 +824,80 @@ it.effect("a fresh-session task launches one thread, then starts each later run 
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
 
+it.effect(
+  "new_thread scheduled tasks tag newly created threads with the default scheduled group",
+  () =>
+    Effect.gen(function* () {
+      const dispatched = yield* Ref.make<
+        Array<{
+          readonly type: string;
+          readonly threadId?: string;
+          readonly tag?: string;
+          readonly tagged?: boolean;
+        }>
+      >([]);
+      const launched = ThreadId.make("thread:scheduled-new");
+      const layer = ScheduledTaskService.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            ManagedPolicy.layerTest(),
+            Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+              launch: () => Effect.succeed({ threadId: launched, resumed: false } as never),
+            }),
+            Layer.mock(ThreadManagementService.ThreadManagementService)({
+              dispatch: (command) =>
+                Ref.update(dispatched, (all) => [
+                  ...all,
+                  command.type === "thread.tag.set"
+                    ? {
+                        type: command.type,
+                        threadId: command.threadId,
+                        tag: command.tag,
+                        tagged: command.tagged,
+                      }
+                    : { type: command.type },
+                ]).pipe(Effect.as({} as never)),
+            }),
+            Layer.mock(SecretRequests.SecretRequests)({}),
+            Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+              namedProjectsRoot: "/projects",
+              isScratchProject: () => Effect.succeed(false),
+            }),
+            NodeCrypto.layer,
+            Layer.succeed(Scheduler.Scheduler, { register: () => Effect.void }),
+          ),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const service = yield* ScheduledTaskService.ScheduledTaskService;
+        const id = ScheduledTaskId.make("task:new-thread-tag");
+        yield* service.upsert({
+          id,
+          title: "Daily Digest",
+          prompt: "Summarize logs",
+          enabled: true,
+          schedule: { type: "interval", everyMs: 60_000 },
+          projectId: ProjectId.make("project:test"),
+          threadMode: "new_thread",
+          workspaceStrategy: { type: "root" },
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+        });
+
+        assert.equal((yield* service.runNow({ id })).threadId, launched);
+        assert.deepEqual(yield* Ref.get(dispatched), [
+          {
+            type: "thread.tag.set",
+            threadId: launched,
+            tag: "group:定时任务",
+            tagged: true,
+          },
+        ]);
+      }).pipe(Effect.provide(layer));
+    }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
 it.effect("a refused dispatch records its refusal, and opaque causes stay generic", () =>
   Effect.gen(function* () {
     const refusal = "Thread thread:refused was stopped.";

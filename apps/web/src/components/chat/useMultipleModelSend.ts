@@ -6,6 +6,7 @@ import {
   type ModelSelection,
   type RuntimeMode,
   type ThreadId,
+  toThreadGroupTag,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
@@ -26,6 +27,7 @@ import type { buildMessageContext } from "../../lib/composerContextRecords";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
+import { useDraftThreadGroupStore } from "../sidebar/threadGrouping";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { DEFAULT_INTERACTION_MODE } from "../../types";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -82,6 +84,9 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
   } = input;
   const navigate = useNavigate();
   const startThreadTurn = useOrchestrationCommand(threadEnvironment.startTurn, {
+    reportFailure: false,
+  });
+  const setThreadTag = useOrchestrationCommand(threadEnvironment.setTag, {
     reportFailure: false,
   });
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
@@ -163,6 +168,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
       setThreadError(threadId, null);
       const starts = Promise.all(
         targets.map(async (target) => {
+          let createdThreadId: ThreadId | null = null;
           const started = await startFanoutThread({
             retryKey: JSON.stringify([
               routeThreadKey,
@@ -172,6 +178,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
             model: target.selection.model,
             uncertainSubmissions: uncertainSubmissionsRef.current,
             start: (targetThreadId) => {
+              createdThreadId = targetThreadId;
               return startThreadTurn({
                 environmentId,
                 input: {
@@ -219,8 +226,21 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
                 params: buildThreadRouteParams(scopeThreadRef(environmentId, threadId)),
               }),
           });
-          if (started) startedCount += 1;
-          else failedSelections.push(target.selection);
+          if (started) {
+            startedCount += 1;
+            const draftGroupName = useDraftThreadGroupStore.getState().getDraftGroupName(draftId);
+            const groupTag = draftGroupName ? toThreadGroupTag(draftGroupName) : null;
+            if (groupTag !== null && createdThreadId !== null) {
+              void setThreadTag({
+                environmentId,
+                input: {
+                  threadId: createdThreadId,
+                  tag: groupTag,
+                  tagged: true,
+                },
+              });
+            }
+          } else failedSelections.push(target.selection);
         }),
       );
       sendInFlightRef.current = false;

@@ -79,4 +79,39 @@ describe("buildThreadActionMenuItems", () => {
     const items = buildThreadActionMenuItems({ ...baseState, canRename: false });
     expect(items.filter((item) => item.disabled).map((item) => item.id)).toEqual(["rename"]);
   });
+
+  it("builds group submenu with existing groups, suggested ticket, create, and clear actions", () => {
+    const items = buildThreadActionMenuItems({
+      ...baseState,
+      threadGroup: {
+        currentGroup: "BLUE-123",
+        availableGroups: ["BLUE-123", "inbox"],
+        suggestedGroup: "BLUE-456",
+      },
+    });
+    const groupItem = items.find((item) => item.id === "group");
+    expect(groupItem?.children?.map((child) => child.id)).toEqual([
+      "group:set:BLUE-123",
+      "group:set:inbox",
+      "group:set:BLUE-456",
+      "group:new",
+      "group:clear",
+    ]);
+    expect(groupItem?.children?.find((child) => child.id === "group:set:BLUE-123")?.checked).toBe(
+      true,
+    );
+
+    const readOnlyItems = buildThreadActionMenuItems({
+      ...baseState,
+      canOperate: false,
+      threadGroup: {
+        currentGroup: null,
+        availableGroups: ["inbox"],
+        suggestedGroup: null,
+      },
+    });
+    const readOnlyGroup = readOnlyItems.find((item) => item.id === "group");
+    expect(readOnlyGroup?.disabled).toBe(true);
+    expect(readOnlyGroup?.children?.every((child) => child.disabled)).toBe(true);
+  });
 });

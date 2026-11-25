@@ -4,9 +4,11 @@ import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   type ProjectId,
   ScheduledTask,
+  SCHEDULED_TASK_GROUP_NAME,
   ScheduledTaskError,
   ScheduledTaskId,
   ThreadId,
+  toThreadGroupTag,
   ScheduledTaskWebhookDeliveryId,
   type ScheduledTaskDeleteInput,
   type ScheduledTaskDeleteResult,
@@ -1140,7 +1142,33 @@ export const layer = Layer.effect(
                   .pipe(
                     Effect.map((launched) => launched.threadId),
                     Effect.tap((threadId) =>
-                      threadMode === "new_thread" ? Effect.void : bindThread(active, threadId),
+                      threadMode === "new_thread"
+                        ? (() => {
+                            const scheduledGroupTag = toThreadGroupTag(SCHEDULED_TASK_GROUP_NAME);
+                            if (scheduledGroupTag === null) return Effect.void;
+                            return threadManagement
+                              .dispatch({
+                                type: "thread.tag.set",
+                                commandId: CommandId.make(`${commandId}:scheduled-group`),
+                                threadId,
+                                tag: scheduledGroupTag,
+                                tagged: true,
+                              })
+                              .pipe(
+                                Effect.asVoid,
+                                Effect.catchCause((tagCause) =>
+                                  Effect.logWarning(
+                                    "Failed to tag scheduled task thread with default group",
+                                    {
+                                      taskId: active.id,
+                                      threadId,
+                                      error: errorMessage(tagCause),
+                                    },
+                                  ),
+                                ),
+                              );
+                          })()
+                        : bindThread(active, threadId),
                     ),
                   ),
               )

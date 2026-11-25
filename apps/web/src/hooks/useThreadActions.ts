@@ -13,8 +13,11 @@ import {
   AuthSourceControlWriteScope,
   EnvironmentAuthorizationError,
   EnvironmentId,
+  getThreadGroupTags,
   type ScopedThreadRef,
   ThreadId,
+  type ThreadTag,
+  toThreadGroupTag,
   sessionGrantsScope,
 } from "@t3tools/contracts";
 import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
@@ -323,6 +326,9 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const setThreadAutoSettleMutation = useOrchestrationCommand(threadEnvironment.setAutoSettle, {
+    reportFailure: false,
+  });
+  const setThreadTagMutation = useOrchestrationCommand(threadEnvironment.setTag, {
     reportFailure: false,
   });
   const reorderPinnedThreadMutation = useOrchestrationCommand(threadEnvironment.reorderPin, {
@@ -1045,6 +1051,46 @@ export function useThreadActions() {
     return deleteThread(target);
   };
 
+  const setThreadTag = async (target: ScopedThreadRef, tag: ThreadTag, tagged: boolean) => {
+    const permissionFailure = threadOperationFailure(target);
+    if (permissionFailure) return permissionFailure;
+    return setThreadTagMutation({
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId, tag, tagged },
+    });
+  };
+
+  const setThreadGroup = async (
+    target: ScopedThreadRef,
+    groupName: string | null,
+    currentTags?: ReadonlyArray<string>,
+  ) => {
+    const permissionFailure = threadOperationFailure(target);
+    if (permissionFailure) return permissionFailure;
+    const shell = readThreadShell(target);
+    const existingTags = currentTags ?? shell?.tags ?? shell?.source?.tags ?? [];
+    const targetTag = groupName === null ? null : toThreadGroupTag(groupName);
+    if (groupName !== null && targetTag === null) {
+      return AsyncResult.success(undefined);
+    }
+    const staleGroupTags = getThreadGroupTags(existingTags).filter((tag) => tag !== targetTag);
+    if (targetTag !== null && !existingTags.includes(targetTag)) {
+      const addResult = await setThreadTagMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, tag: targetTag, tagged: true },
+      });
+      if (addResult._tag === "Failure") return addResult;
+    }
+    for (const staleTag of staleGroupTags) {
+      const removeResult = await setThreadTagMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, tag: staleTag as ThreadTag, tagged: false },
+      });
+      if (removeResult._tag === "Failure") return removeResult;
+    }
+    return AsyncResult.success(undefined);
+  };
+
   return {
     archiveThread,
     unarchiveThread,
@@ -1061,6 +1107,8 @@ export function useThreadActions() {
     reorderActiveThread,
     markThreadUnread,
     setThreadAutoSettle,
+    setThreadTag,
+    setThreadGroup,
     turnThreadIntoProject: (target: ScopedThreadRef) =>
       createProjectFromThread({
         environmentId: target.environmentId,

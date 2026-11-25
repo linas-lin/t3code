@@ -176,6 +176,7 @@ export type CtStudioInboundMessage =
       readonly modelSelection?: CtStudioStartThreadSelection | undefined;
       readonly interactionMode?: "default" | "plan" | undefined;
       readonly focus?: boolean | undefined;
+      readonly group?: string | undefined;
     }
   | {
       readonly type: "ct-studio:prepare-worktree";
@@ -845,6 +846,9 @@ export function parseCtStudioInboundMessage(data: unknown): CtStudioInboundMessa
         ...(modelSelection ? { modelSelection } : {}),
         ...(interactionMode ? { interactionMode } : {}),
         ...(typeof data.focus === "boolean" ? { focus: data.focus } : {}),
+        ...(typeof data.group === "string" && data.group.trim()
+          ? { group: data.group.trim() }
+          : {}),
       };
     }
     case "ct-studio:prepare-worktree": {
