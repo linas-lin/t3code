@@ -18,6 +18,7 @@ import { commandLabel } from "./KeybindingsSettings.logic";
 import type { ResolvedSettingsScope } from "./settingsScope";
 
 export type SettingsPath =
+  | "/settings/ct-studio"
   | "/settings/projects"
   | "/settings/general"
   | "/settings/diagnostics"
@@ -95,6 +96,7 @@ export interface SettingsSearchAvailability {
 }
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
+  "/settings/ct-studio": msg("CT Studio"),
   "/settings/diagnostics": msg("Diagnostics"),
   "/settings/projects": msg("Projects"),
   "/settings/general": msg("General"),
@@ -141,6 +143,7 @@ const ALL_SETTINGS_NAV_GROUPS: ReadonlyArray<SettingsNavGroup> = [
     heading: msg("Preferences"),
     headingHidden: true,
     paths: [
+      "/settings/ct-studio",
       "/settings/general",
       "/settings/appearance",
       "/settings/chat",
@@ -1504,6 +1507,7 @@ export type SettingsSearchItemId = (typeof SETTINGS_SEARCH_ITEMS)[number]["id"];
 const SEARCH_ITEMS_BY_ID = new Map(SETTINGS_SEARCH_ITEMS.map((item) => [item.id, item] as const));
 
 const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScope | null>> = {
+  "/settings/ct-studio": null,
   "/settings/diagnostics": "environment",
   "/settings/projects": "project",
   "/settings/general": null,
@@ -1545,6 +1549,7 @@ const SPLIT_SETTINGS_PATHS: ReadonlySet<string> = new Set([
 const MOVED_SECTION_ANCHORS: Readonly<Record<string, SettingsPath>> = {
   "authorized-clients": "/settings/access",
   "text-generation": "/settings/threads",
+  "ct-studio": "/settings/ct-studio",
   about: "/settings/about",
 };
 
