@@ -116,6 +116,62 @@ export function buildAvailableRepoScopes(input: {
   });
 }
 
+/**
+ * Filters repo scopes by name or path query and orders selected repos first
+ * (keeping ct-studio root last within unselected repos).
+ */
+export function filterAndSortRepoScopes(
+  scopes: ReadonlyArray<ExplorerRepoScope>,
+  selectedScopeIds: ReadonlyArray<string>,
+  query: string,
+): ReadonlyArray<ExplorerRepoScope> {
+  const selectedSet = new Set(selectedScopeIds);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filtered = normalizedQuery
+    ? scopes.filter(
+        (scope) =>
+          scope.name.toLowerCase().includes(normalizedQuery) ||
+          scope.cwd.toLowerCase().includes(normalizedQuery),
+      )
+    : scopes;
+
+  return filtered.toSorted((left, right) => {
+    const leftSelected = selectedSet.has(left.id);
+    const rightSelected = selectedSet.has(right.id);
+    if (leftSelected !== rightSelected) {
+      return leftSelected ? -1 : 1;
+    }
+    if (Boolean(left.isCtStudioRoot) !== Boolean(right.isCtStudioRoot)) {
+      return left.isCtStudioRoot ? 1 : -1;
+    }
+    return left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
+  });
+}
+
+/**
+ * Splits currently selected scopes into a bounded number of compact header chips
+ * plus an overflow count so the single-row top bar never wraps or overflows.
+ */
+export function partitionSelectedScopeChips(
+  scopes: ReadonlyArray<ExplorerRepoScope>,
+  selectedScopeIds: ReadonlyArray<string>,
+  maxVisible = 3,
+): {
+  readonly selectedScopes: ReadonlyArray<ExplorerRepoScope>;
+  readonly visibleChips: ReadonlyArray<ExplorerRepoScope>;
+  readonly overflowCount: number;
+} {
+  const selectedSet = new Set(selectedScopeIds);
+  const selectedScopes = scopes.filter((scope) => selectedSet.has(scope.id));
+  const limit = Math.max(0, maxVisible);
+  const visibleChips = selectedScopes.slice(0, limit);
+  return {
+    selectedScopes,
+    visibleChips,
+    overflowCount: Math.max(0, selectedScopes.length - visibleChips.length),
+  };
+}
+
 function globTokenToRegex(token: string): RegExp {
   const escaped = token
     .replace(/[.+^${}()|[\]\\]/g, "\\$&")

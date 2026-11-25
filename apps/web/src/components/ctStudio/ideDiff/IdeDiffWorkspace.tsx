@@ -11,7 +11,9 @@ import {
 import { createPortal } from "react-dom";
 
 import { observeResize } from "~/lib/observeResize";
+import { cn } from "~/lib/utils";
 import { Button } from "../../ui/button";
+import { useDesktopOverlayHeaderChrome } from "../useDesktopOverlayHeaderChrome";
 import { IdeDiffFileTree } from "./IdeDiffFileTree";
 import {
   resolveEffectiveDiffLayout,
@@ -101,6 +103,8 @@ export function IdeDiffWorkspace({
   banner,
 }: IdeDiffWorkspaceProps) {
   const gt = useGT();
+  const { headerClassName: desktopHeaderClassName, headerStyle: desktopHeaderStyle } =
+    useDesktopOverlayHeaderChrome();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<IdeDiffViewportHandle | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -313,7 +317,13 @@ export function IdeDiffWorkspace({
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background outline-none"
     >
       {fullscreen ? (
-        <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border bg-background px-3">
+        <div
+          style={desktopHeaderStyle}
+          className={cn(
+            "flex h-[var(--workspace-topbar-height)] min-h-10 shrink-0 items-center justify-between gap-2 border-b border-border bg-background px-3",
+            desktopHeaderClassName,
+          )}
+        >
           <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-foreground">
             <span className="truncate">{scopeTitle ?? gt("IDE Diff Review")}</span>
             <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-3xs text-muted-foreground">

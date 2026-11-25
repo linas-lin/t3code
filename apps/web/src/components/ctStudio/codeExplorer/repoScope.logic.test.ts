@@ -5,11 +5,13 @@ import {
   ancestorDirectoryPaths,
   buildAvailableRepoScopes,
   buildFilteredTreeRows,
+  filterAndSortRepoScopes,
   findFileNameMatchRanges,
   flattenVisibleTreeRows,
   formatCompactParentPath,
   isTestFilePath,
   matchesPathFilter,
+  partitionSelectedScopeChips,
   pickInitialSelectedScopeIds,
 } from "./repoScope.logic";
 
@@ -228,5 +230,48 @@ describe("repoScope.logic", () => {
         isMatch: true,
       },
     ]);
+  });
+
+  it("filters scopes by name or path, orders selected first, and bounds visible header chips", () => {
+    const scopes = buildAvailableRepoScopes({
+      projects: [
+        { environmentId: ENV, title: "ct-studio", workspaceRoot: "/work/ct-studio" },
+        { environmentId: ENV, title: "alpha-service", workspaceRoot: "/work/alpha-service" },
+        { environmentId: ENV, title: "beta-service", workspaceRoot: "/work/beta-service" },
+        { environmentId: ENV, title: "gamma-web", workspaceRoot: "/work/repos/gamma-web" },
+        { environmentId: ENV, title: "delta-api", workspaceRoot: "/work/repos/delta-api" },
+      ],
+      ctStudioRepos: [],
+      customRepos: [],
+    });
+
+    const selected = [
+      `${ENV}::/work/repos/gamma-web`,
+      `${ENV}::/work/repos/delta-api`,
+      `${ENV}::/work/beta-service`,
+      `${ENV}::/work/alpha-service`,
+    ];
+
+    const ordered = filterAndSortRepoScopes(scopes, [`${ENV}::/work/repos/gamma-web`], "");
+    expect(ordered.map((s) => s.name)).toEqual([
+      "gamma-web",
+      "alpha-service",
+      "beta-service",
+      "delta-api",
+      "ct-studio",
+    ]);
+
+    const pathFiltered = filterAndSortRepoScopes(scopes, selected, "/work/repos/");
+    expect(pathFiltered.map((s) => s.name)).toEqual(["delta-api", "gamma-web"]);
+
+    const chips = partitionSelectedScopeChips(scopes, selected, 2);
+    expect(chips.selectedScopes.map((s) => s.name)).toEqual([
+      "alpha-service",
+      "beta-service",
+      "delta-api",
+      "gamma-web",
+    ]);
+    expect(chips.visibleChips.map((s) => s.name)).toEqual(["alpha-service", "beta-service"]);
+    expect(chips.overflowCount).toBe(2);
   });
 });
