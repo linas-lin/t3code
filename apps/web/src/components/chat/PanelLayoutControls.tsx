@@ -1,4 +1,5 @@
 import {
+  Code2Icon,
   PanelBottomIcon,
   PanelRightIcon,
   SquareMenuIcon,
@@ -8,9 +9,10 @@ import {
 import { useGT } from "gt-react";
 import { memo, type ReactNode, useLayoutEffect, useRef } from "react";
 
-import { cn } from "~/lib/utils";
+import { cn, isMacPlatform } from "~/lib/utils";
 
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
+import { useCodeExplorerStore } from "../ctStudio/codeExplorer/codeExplorerStore";
 import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { useMobileSidebarSheetMounted } from "../ui/sidebar";
 import { Toggle } from "../ui/toggle";
@@ -20,6 +22,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 const THREAD_PANEL_HEADER_INSET_PX = 12;
 
 export interface PanelLayoutControlsProps {
+  showCodeExplorerControl?: boolean;
   showThreadPanelControl?: boolean;
   showTerminalControl?: boolean;
   showRightPanelControl?: boolean;
@@ -40,6 +43,7 @@ export interface PanelLayoutControlsProps {
 }
 
 export const PanelLayoutControls = memo(function PanelLayoutControls({
+  showCodeExplorerControl = true,
   showThreadPanelControl = true,
   showTerminalControl = true,
   showRightPanelControl = true,
@@ -59,6 +63,16 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   onToggleRightPanel,
 }: PanelLayoutControlsProps) {
   const gt = useGT();
+  const codeExplorerOpen = useCodeExplorerStore((state) => state.open);
+  const codeExplorerShortcutLabel = isMacPlatform(navigator.platform) ? "⌘⇧F" : "Ctrl+⇧F";
+  const handleToggleCodeExplorer = () => {
+    const store = useCodeExplorerStore.getState();
+    if (store.open) {
+      store.closeExplorer();
+    } else {
+      store.openExplorer("code");
+    }
+  };
   const threadPanelToggle = (
     <Toggle
       className="relative shrink-0 [-webkit-app-region:no-drag]"
@@ -93,6 +107,25 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
       data-panel-layout-controls
     >
+      {showCodeExplorerControl ? (
+        <Tooltip>
+          <TooltipTrigger render={<span className="flex shrink-0" />}>
+            <Toggle
+              className="shrink-0 [-webkit-app-region:no-drag]"
+              pressed={codeExplorerOpen}
+              onPressedChange={handleToggleCodeExplorer}
+              aria-label={gt("Code Explorer")}
+              variant="ghost"
+              size="sm"
+            >
+              <Code2Icon className="size-4" />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">
+            {gt("Code Explorer ({shortcut})", { shortcut: codeExplorerShortcutLabel })}
+          </TooltipPopup>
+        </Tooltip>
+      ) : null}
       {showThreadPanelControl ? threadPanelControl : null}
       {showTerminalControl ? (
         <Tooltip>
@@ -192,7 +225,12 @@ export function ThreadPanelHeaderControl(props: PanelLayoutControlsProps) {
       )}
       data-workspace-titlebar-controls
     >
-      <PanelLayoutControls {...props} showTerminalControl={false} showRightPanelControl={false} />
+      <PanelLayoutControls
+        {...props}
+        showCodeExplorerControl={false}
+        showTerminalControl={false}
+        showRightPanelControl={false}
+      />
     </div>
   );
 }
