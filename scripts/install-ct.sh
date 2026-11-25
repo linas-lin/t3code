@@ -2,17 +2,19 @@
 set -euo pipefail
 
 REPO="${CT_REPO:-linas-lin/t3code}"
-APP_NAME="T3 Code (CT).app"
+APP_NAME="CT Code.app"
+LEGACY_APP_NAME="T3 Code (CT).app"
 APP_DIR="${CT_APP_DIR:-/Applications}"
 DEST_APP="${APP_DIR}/${APP_NAME}"
+LEGACY_DEST_APP="${APP_DIR}/${LEGACY_APP_NAME}"
 REQUESTED_VERSION="${CT_VERSION:-}"
 
 info() {
-  printf '[t3-code-ct] %s\n' "$*"
+  printf '[ct-code] %s\n' "$*"
 }
 
 die() {
-  printf '[t3-code-ct] Error: %s\n' "$*" >&2
+  printf '[ct-code] Error: %s\n' "$*" >&2
   exit 1
 }
 
@@ -34,25 +36,25 @@ if [[ -n "$REQUESTED_VERSION" ]]; then
   info "Looking up release ${REQUESTED_VERSION} from ${REPO}..."
 else
   API_URL="https://api.github.com/repos/${REPO}/releases?per_page=20"
-  info "Looking up latest T3 Code (CT) release from ${REPO}..."
+  info "Looking up latest CT Code release from ${REPO}..."
 fi
 
-RELEASE_JSON="$(curl -fsSL -H "Accept: application/vnd.github+json" -H "User-Agent: t3-code-ct-installer" "$API_URL")" \
+RELEASE_JSON="$(curl -fsSL -H "Accept: application/vnd.github+json" -H "User-Agent: ct-code-installer" "$API_URL")" \
   || die "Failed to query GitHub Releases (${API_URL})."
 
 DOWNLOAD_URL="$({ printf '%s\n' "$RELEASE_JSON" \
-  | grep -oE '"browser_download_url"[[:space:]]*:[[:space:]]*"https://[^"]+/releases/download/ct-v[^"]+/T3-Code-CT-[^"]*-arm64\.dmg"' \
+  | grep -oE '"browser_download_url"[[:space:]]*:[[:space:]]*"https://[^"]+/releases/download/ct-v[^"]+/CT-Code-[^"]*-arm64\.dmg"' \
   | head -n 1 \
   | sed -E 's/^"browser_download_url"[[:space:]]*:[[:space:]]*"([^"]+)"$/\1/'; } || true)"
 
 if [[ -z "$DOWNLOAD_URL" ]]; then
-  die "No macOS arm64 DMG found in ${REPO} releases (expected T3-Code-CT-*-arm64.dmg under a ct-v* tag)."
+  die "No macOS arm64 DMG found in ${REPO} releases (expected CT-Code-*-arm64.dmg under a ct-v* tag)."
 fi
 
 FILE_NAME="${DOWNLOAD_URL##*/}"
 TAG_NAME="$(printf '%s' "$DOWNLOAD_URL" | sed -E 's#.*/releases/download/([^/]+)/.*#\1#')"
 
-WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/t3-code-ct-install.XXXXXX")"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ct-code-install.XXXXXX")"
 MOUNT_DIR="${WORK_DIR}/mnt"
 DMG_PATH="${WORK_DIR}/${FILE_NAME}"
 MOUNTED=0
@@ -76,17 +78,24 @@ MOUNTED=1
 SRC_APP="${MOUNT_DIR}/${APP_NAME}"
 [[ -d "$SRC_APP" ]] || die "Expected '${APP_NAME}' inside mounted DMG, but it was not found."
 
-if pgrep -f "/T3 Code \(CT\)\.app/" >/dev/null 2>&1; then
-  info "Closing running T3 Code (CT)..."
-  osascript -e 'tell application "T3 Code (CT)" to quit' >/dev/null 2>&1 || true
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    pgrep -f "/T3 Code \(CT\)\.app/" >/dev/null 2>&1 || break
-    sleep 0.5
-  done
-  if pgrep -f "/T3 Code \(CT\)\.app/" >/dev/null 2>&1; then
-    die "T3 Code (CT) is still running. Please quit it manually and re-run this command."
+quit_app_if_running() {
+  local app_label="$1"
+  local pattern="$2"
+  if pgrep -f "$pattern" >/dev/null 2>&1; then
+    info "Closing running ${app_label}..."
+    osascript -e "tell application \"${app_label}\" to quit" >/dev/null 2>&1 || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      pgrep -f "$pattern" >/dev/null 2>&1 || break
+      sleep 0.5
+    done
+    if pgrep -f "$pattern" >/dev/null 2>&1; then
+      die "${app_label} is still running. Please quit it manually and re-run this command."
+    fi
   fi
-fi
+}
+
+quit_app_if_running "CT Code" "/CT Code\.app/"
+quit_app_if_running "T3 Code (CT)" "/T3 Code \(CT\)\.app/"
 
 USE_SUDO=0
 mkdir -p "$APP_DIR" 2>/dev/null || true
@@ -108,5 +117,10 @@ run_install_cmd rm -rf "$DEST_APP"
 run_install_cmd ditto "$SRC_APP" "$DEST_APP"
 run_install_cmd xattr -cr "$DEST_APP"
 
-info "Installed T3 Code (CT) (${TAG_NAME}) to ${DEST_APP}."
-info "You can open it now from Applications or run: open -a \"T3 Code (CT)\""
+if [[ -d "$LEGACY_DEST_APP" ]]; then
+  info "Removing legacy ${LEGACY_DEST_APP}..."
+  run_install_cmd rm -rf "$LEGACY_DEST_APP"
+fi
+
+info "Installed CT Code (${TAG_NAME}) to ${DEST_APP}."
+info "You can open it now from Applications or run: open -a \"CT Code\""

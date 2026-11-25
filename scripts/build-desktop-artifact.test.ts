@@ -44,6 +44,8 @@ import {
   resolveMacPasskeySigningConfiguration,
   resolveMergedStageDependencies,
   resolveBuildOptions,
+  resolveDesktopBuildIconAssets,
+  resolveDesktopWebAssetBrand,
   stageWslRuntimeArchive,
   ancestorNodeModulesPaths,
   copyDirectoryPreservingSymlinks,
@@ -1909,14 +1911,24 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "arm64",
         "ct",
       );
-      assert.equal(macConfig.appId, "com.ct.t3code");
-      assert.equal(macConfig.productName, "T3 Code (CT)");
-      assert.equal(macConfig.artifactName, "T3-Code-CT-${version}-${arch}.${ext}");
+      assert.equal(macConfig.appId, "com.ct.code");
+      assert.equal(macConfig.productName, "CT Code");
+      assert.equal(macConfig.artifactName, "CT-Code-${version}-${arch}.${ext}");
       assert.isNull(macConfig.publish);
       assert.deepStrictEqual((macConfig.mac as { protocols: unknown }).protocols, [
-        { name: "T3 Code (CT)", schemes: ["t3code-dev"] },
+        { name: "CT Code", schemes: ["t3code-dev"] },
       ]);
-      assert.equal((macConfig.dmg as { title: string }).title, "T3 Code (CT) 0.1.11 Installer");
+      assert.equal((macConfig.dmg as { title: string }).title, "CT Code 0.1.11 Installer");
+      assert.equal(
+        (macConfig.dmg as { background: string }).background,
+        "dmg/dmg-background-ct.png",
+      );
+      assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.1.11", "ct"), {
+        macIconPng: "assets/ct/ct-macos-1024.png",
+        linuxIconPng: "assets/ct/ct-universal-1024.png",
+        windowsIconIco: "assets/ct/ct-windows.ico",
+      });
+      assert.equal(resolveDesktopWebAssetBrand("0.1.11", "ct"), "ct");
 
       const linuxConfig = yield* createBuildConfig(
         "linux",
@@ -1930,12 +1942,12 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "x64",
         "ct",
       );
-      assert.equal(linuxConfig.appId, "com.ct.t3code");
+      assert.equal(linuxConfig.appId, "com.ct.code");
       assert.isNull(linuxConfig.publish);
-      assert.nestedPropertyVal(linuxConfig, "linux.executableName", "t3code-ct");
-      assert.nestedPropertyVal(linuxConfig, "linux.desktop.entry.StartupWMClass", "com.ct.T3Code");
+      assert.nestedPropertyVal(linuxConfig, "linux.executableName", "ct-code");
+      assert.nestedPropertyVal(linuxConfig, "linux.desktop.entry.StartupWMClass", "com.ct.Code");
       assert.deepStrictEqual((linuxConfig.linux as { protocols: unknown }).protocols, [
-        { name: "T3 Code (CT)", schemes: ["t3code-dev"] },
+        { name: "CT Code", schemes: ["t3code-dev"] },
       ]);
     }).pipe(
       Effect.provide(

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0B0B0D"/>
+      <stop offset="35%" stop-color="#040405"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </linearGradient>
+
+    <linearGradient id="rim" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="16%" stop-color="#FFFFFF" stop-opacity="0.06"/>
+      <stop offset="84%" stop-color="#FFFFFF" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.22"/>
+    </linearGradient>
+
+    <linearGradient id="silver" x1="0" y1="280" x2="0" y2="744" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="42%" stop-color="#F2F2F4"/>
+      <stop offset="78%" stop-color="#C8C8CE"/>
+      <stop offset="100%" stop-color="#9A9AA2"/>
+    </linearGradient>
+
+    <linearGradient id="orangeBar" x1="719" y1="280" x2="719" y2="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FDBA74"/>
+      <stop offset="45%" stop-color="#F97316"/>
+      <stop offset="100%" stop-color="#C2410C"/>
+    </linearGradient>
+
+    <linearGradient id="orangeDot" x1="857" y1="654" x2="857" y2="736" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FDBA74"/>
+      <stop offset="45%" stop-color="#F97316"/>
+      <stop offset="100%" stop-color="#C2410C"/>
+    </linearGradient>
+
+    <filter id="lift" x="-12%" y="-12%" width="124%" height="128%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000000" flood-opacity="0.75"/>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="url(#bg)"/>
+  <rect x="5" y="5" width="1014" height="1014" rx="219" fill="none" stroke="url(#rim)" stroke-width="8"/>
+
+  <g filter="url(#lift)">
+    <!-- Geometric "C" with subtly rounded terminal corners -->
+    <path
+      d="M487 382 C454 320 397 280 322 280 C200 280 120 375 120 512 C120 649 200 744 322 744 C397 744 454 704 487 642 C492 632 488 620 478 615 L418 589 C408 585 397 590 392 600 C376 634 353 652 322 652 C262 652 224 598 224 512 C224 426 262 372 322 372 C353 372 376 390 392 424 C397 434 408 439 418 435 L478 409 C488 404 492 392 487 382 Z"
+      fill="url(#silver)"
+    />
+
+    <!-- Geometric "T" vertical stem with subtly rounded bottom corners -->
+    <rect x="664" y="362" width="110" height="374" rx="20" fill="url(#silver)"/>
+
+    <!-- Geometric "T" top bar with subtly rounded corners (orange accent) -->
+    <rect x="532" y="280" width="374" height="100" rx="20" fill="url(#orangeBar)"/>
+
+    <!-- Code cursor block with matching subtle corner radius (orange accent) -->
+    <rect x="816" y="654" width="82" height="82" rx="20" fill="url(#orangeDot)"/>
+  </g>
+</svg>

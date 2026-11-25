@@ -1,4 +1,4 @@
-name: Release T3 Code (CT)
+name: Release CT Code
 
 on:
   push:
@@ -93,7 +93,7 @@ jobs:
                 target: "dmg",
                 arch: "arm64",
                 rust_target: "aarch64-apple-darwin",
-                artifact_glob: "release/T3-Code-CT-*-arm64.dmg",
+                artifact_glob: "release/CT-Code-*-arm64.dmg",
               },
               {
                 label: "Windows (x64)",
@@ -102,7 +102,7 @@ jobs:
                 target: "nsis",
                 arch: "x64",
                 rust_target: "x86_64-pc-windows-msvc",
-                artifact_glob: "release/T3-Code-CT-*-x64.exe",
+                artifact_glob: "release/CT-Code-*-x64.exe",
               },
             ];
             const wanted = process.env.PLATFORMS || "all";
@@ -171,7 +171,7 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.rust_target }}
 
-      - name: Build T3 Code (CT) artifact
+      - name: Build CT Code artifact
         shell: bash
         env:
           pnpm_config_cache_dir: ${{ steps.stage_pnpm.outputs.dir }}/cache
@@ -236,13 +236,15 @@ jobs:
           ls -lh dist-release/
 
           cat > release-notes.md <<EOF
-          ## T3 Code (CT) ${VERSION}
+          ## CT Code ${VERSION}
 
-          Coexisting desktop build (**T3 Code (CT)**, bundle ID \`com.ct.t3code\`, scheme \`t3code-dev://\`, isolated user data). Installs alongside the standard T3 Code app without overwriting it.
+          > **Unofficial Fork Notice:** CT Code is an unofficial fork based on the MIT-licensed T3 Code source code, built for internal CT Studio integration. It is not affiliated with, endorsed by, or maintained by T3 Tools, Inc.
+
+          Coexisting desktop build (**CT Code**, bundle ID \`com.ct.code\`, scheme \`t3code-dev://\`, isolated user data). Installs alongside the official T3 Code app without overwriting it.
 
           ### One-Line Install / Upgrade
 
-          **macOS (Apple Silicon / arm64)** — automatically installs to \`/Applications/T3 Code (CT).app\` and clears quarantine:
+          **macOS (Apple Silicon / arm64)** — automatically installs to \`/Applications/CT Code.app\`, removes any legacy \`T3 Code (CT).app\`, and clears quarantine:
           \`\`\`bash
           curl -fsSL https://raw.githubusercontent.com/${REPO}/ct-studio/scripts/install-ct.sh | bash
           \`\`\`
@@ -253,18 +255,18 @@ jobs:
           \`\`\`
 
           ### Manual Download Notes
-          - **macOS**: If downloaded manually via browser, drag \`T3 Code (CT).app\` to \`/Applications\` and run \`xattr -cr "/Applications/T3 Code (CT).app"\` once before opening (unsigned build).
-          - **Windows**: This build is unsigned; if Windows SmartScreen prompts, click **More info → Run anyway**.
+          - **macOS**: If downloaded manually via browser, drag \`CT Code.app\` to \`/Applications\` and run \`xattr -cr "/Applications/CT Code.app"\` once before opening (unsigned build).
+          - **Windows**: This build is unsigned; if Windows SmartScreen prompts, click **More info → Run anyway**. If upgrading from an older \`T3 Code (CT)\` build, you can uninstall the legacy entry from Windows Settings → Installed apps.
           EOF
 
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release upload "$TAG" dist-release/* --repo "$REPO" --clobber
-            gh release edit "$TAG" --repo "$REPO" --title "T3 Code (CT) ${TAG}" --notes-file release-notes.md --latest
+            gh release edit "$TAG" --repo "$REPO" --title "CT Code ${TAG}" --notes-file release-notes.md --latest
           else
             gh release create "$TAG" dist-release/* \
               --repo "$REPO" \
               --target "$COMMIT_SHA" \
-              --title "T3 Code (CT) ${TAG}" \
+              --title "CT Code ${TAG}" \
               --notes-file release-notes.md \
               --latest
           fi

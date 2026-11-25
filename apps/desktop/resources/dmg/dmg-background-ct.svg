@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="864" viewBox="0 0 640 432">
+  <defs>
+    <linearGradient id="veil" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#94A3B8" stop-opacity="0"/>
+      <stop offset=".55" stop-color="#64748B" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#0F172A" stop-opacity=".12"/>
+    </linearGradient>
+    <linearGradient id="silk" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#D4D4D8"/>
+      <stop offset=".5" stop-color="#FED7AA"/>
+      <stop offset="1" stop-color="#E4E4E7"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="432" fill="#EEEEF0"/>
+  <path d="M-60 293C95 220 214 304 362 256S559 191 707 257" stroke="url(#veil)" stroke-width="146" fill="none" opacity="1" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M-60 306C113 252 223 298 367 272S553 242 707 280" stroke="url(#silk)" stroke-width="86" fill="none" opacity="0.65" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M-60 266C113 212 223 258 367 232S553 202 707 240" stroke="#FFFFFF" stroke-width="0.9" fill="none" opacity="0.55" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- CT Code mark -->
+  <svg x="32" y="23" width="32" height="18" viewBox="0 0 112 64" fill="none">
+    <path d="M44 18 C39 11 32 8 24 8 C12 8 6 18 6 32 C6 46 12 56 24 56 C32 56 39 53 44 46" stroke="#18181B" stroke-width="11" stroke-linecap="round"/>
+    <path d="M80 12 L80 56" stroke="#18181B" stroke-width="11" stroke-linecap="round"/>
+    <path d="M58 10 L102 10" stroke="#EA580C" stroke-width="11" stroke-linecap="round"/>
+  </svg>
+  <text x="320" y="104" fill="#0F172A" font-family="Helvetica" font-size="23" font-weight="700" text-anchor="middle">Drag CT Code into Applications.</text>
+  <path d="M270 204Q320 179 370 204M358 190L370 204L351 209" stroke="#334155" stroke-width="2.2" fill="none" opacity="1" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="320" y="367" fill="#475569" font-family="Helvetica" font-size="12" font-weight="400" text-anchor="middle">Once copied, open it from Applications.</text>
+</svg>

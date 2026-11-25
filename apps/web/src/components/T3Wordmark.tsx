@@ -1,6 +1,27 @@
 import type { SVGProps } from "react";
+import { IS_CT_BRANDING } from "../branding";
 
 export function T3Wordmark(props: SVGProps<SVGSVGElement>) {
+  if (IS_CT_BRANDING) {
+    return (
+      <svg {...props} viewBox="0 0 112 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path
+          d="M44 18 C39 11 32 8 24 8 C12 8 6 18 6 32 C6 46 12 56 24 56 C32 56 39 53 44 46"
+          stroke="currentColor"
+          strokeWidth="11"
+          strokeLinecap="round"
+        />
+        <path d="M80 12 L80 56" stroke="currentColor" strokeWidth="11" strokeLinecap="round" />
+        <path
+          d="M58 10 L102 10"
+          stroke="var(--color-orange-500)"
+          strokeWidth="11"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+
   return (
     <svg {...props} viewBox="15.5309 37 94.3941 56.96" xmlns="http://www.w3.org/2000/svg">
       <path

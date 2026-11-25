@@ -7,7 +7,7 @@ $Repo = if ($env:CT_REPO) { $env:CT_REPO } else { 'linas-lin/t3code' }
 $RequestedVersion = $env:CT_VERSION
 
 function Write-Info([string]$Message) {
-  Write-Host "[t3-code-ct] $Message"
+  Write-Host "[ct-code] $Message"
 }
 
 if ([Environment]::Is64BitOperatingSystem -eq $false) {
@@ -16,7 +16,7 @@ if ([Environment]::Is64BitOperatingSystem -eq $false) {
 
 $Headers = @{
   'Accept'     = 'application/vnd.github+json'
-  'User-Agent' = 't3-code-ct-installer'
+  'User-Agent' = 'ct-code-installer'
 }
 
 if ($RequestedVersion) {
@@ -25,7 +25,7 @@ if ($RequestedVersion) {
   $Releases = @(Invoke-RestMethod -Uri $ApiUrl -Headers $Headers)
 } else {
   $ApiUrl = "https://api.github.com/repos/$Repo/releases?per_page=20"
-  Write-Info "Looking up latest T3 Code (CT) release from $Repo..."
+  Write-Info "Looking up latest CT Code release from $Repo..."
   $Releases = @(Invoke-RestMethod -Uri $ApiUrl -Headers $Headers)
 }
 
@@ -34,7 +34,7 @@ $SelectedAsset = $null
 foreach ($Rel in $Releases) {
   if ($Rel.draft) { continue }
   if (-not $Rel.tag_name -or -not $Rel.tag_name.StartsWith('ct-v')) { continue }
-  $Asset = $Rel.assets | Where-Object { $_.name -match '^T3-Code-CT-.*-x64\.exe$' } | Select-Object -First 1
+  $Asset = $Rel.assets | Where-Object { $_.name -match '^CT-Code-.*-x64\.exe$' } | Select-Object -First 1
   if ($Asset) {
     $SelectedRelease = $Rel
     $SelectedAsset = $Asset
@@ -43,14 +43,14 @@ foreach ($Rel in $Releases) {
 }
 
 if (-not $SelectedAsset) {
-  throw "No Windows x64 installer (T3-Code-CT-*-x64.exe) found in $Repo releases."
+  throw "No Windows x64 installer (CT-Code-*-x64.exe) found in $Repo releases."
 }
 
 $TagName = $SelectedRelease.tag_name
 $FileName = $SelectedAsset.name
 $DownloadUrl = $SelectedAsset.browser_download_url
 
-$WorkDir = Join-Path ([IO.Path]::GetTempPath()) ("t3-code-ct-install-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+$WorkDir = Join-Path ([IO.Path]::GetTempPath()) ("ct-code-install-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
 $InstallerPath = Join-Path $WorkDir $FileName
 
@@ -76,7 +76,8 @@ try {
   if ($Process.ExitCode -ne 0) {
     throw "Installer exited with code $($Process.ExitCode)."
   }
-  Write-Info "T3 Code (CT) ($TagName) installation finished."
+  Write-Info "CT Code ($TagName) installation finished."
+  Write-Info "If upgrading from an older 'T3 Code (CT)' build, you can uninstall it in Windows Settings -> Installed apps."
 } finally {
   if (Test-Path $WorkDir) {
     Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue

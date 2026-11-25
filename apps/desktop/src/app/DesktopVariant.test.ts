@@ -32,8 +32,8 @@ describe("DesktopVariant", () => {
     assert.equal(resolveProductionDesktopScheme("standard"), "t3code");
     assert.equal(resolveProductionDesktopScheme("ct"), "t3code-dev");
     assert.equal(resolveProductionAppUserModelId("standard"), "com.t3tools.t3code");
-    assert.equal(resolveProductionAppUserModelId("ct"), "com.ct.t3code");
-    assert.equal(resolveLinuxDesktopEntryNameForVariant(false, "ct"), "com.ct.T3Code.desktop");
+    assert.equal(resolveProductionAppUserModelId("ct"), "com.ct.code");
+    assert.equal(resolveLinuxDesktopEntryNameForVariant(false, "ct"), "com.ct.Code.desktop");
     assert.equal(
       resolveLinuxDesktopEntryNameForVariant(true, "ct"),
       "com.t3tools.T3Code.Development.desktop",
@@ -64,9 +64,9 @@ describe("DesktopVariant", () => {
     assert.deepStrictEqual(
       resolveDesktopAppBranding({ isDevelopment: false, appVersion: "0.1.11", variant: "ct" }),
       {
-        baseName: "T3 Code",
+        baseName: "CT Code",
         stageLabel: "CT",
-        displayName: "T3 Code (CT)",
+        displayName: "CT Code",
       },
     );
   });

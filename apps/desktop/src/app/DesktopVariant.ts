@@ -37,7 +37,7 @@ export function resolveProductionDesktopScheme(
 export function resolveProductionAppUserModelId(
   variant: DesktopVariant = CURRENT_DESKTOP_VARIANT,
 ): string {
-  return isCtDesktopVariant(variant) ? "com.ct.t3code" : "com.t3tools.t3code";
+  return isCtDesktopVariant(variant) ? "com.ct.code" : "com.t3tools.t3code";
 }
 
 export function resolveLinuxDesktopEntryNameForVariant(
@@ -47,5 +47,5 @@ export function resolveLinuxDesktopEntryNameForVariant(
   if (isDevelopment) {
     return "com.t3tools.T3Code.Development.desktop";
   }
-  return isCtDesktopVariant(variant) ? "com.ct.T3Code.desktop" : "com.t3tools.T3Code.desktop";
+  return isCtDesktopVariant(variant) ? "com.ct.Code.desktop" : "com.t3tools.T3Code.desktop";
 }

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- Pure deep obsidian black matching macOS dark glass style -->
+    <linearGradient id="bg" x1="512" y1="100" x2="512" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0B0B0D"/>
+      <stop offset="35%" stop-color="#040405"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </linearGradient>
+
+    <!-- Subtle top & bottom glass rim sheen -->
+    <linearGradient id="rim" x1="512" y1="100" x2="512" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="16%" stop-color="#FFFFFF" stop-opacity="0.06"/>
+      <stop offset="84%" stop-color="#FFFFFF" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.22"/>
+    </linearGradient>
+
+    <!-- Metallic silver-white vertical gradient -->
+    <linearGradient id="silver" x1="0" y1="322" x2="0" y2="702" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="42%" stop-color="#F2F2F4"/>
+      <stop offset="78%" stop-color="#C8C8CE"/>
+      <stop offset="100%" stop-color="#9A9AA2"/>
+    </linearGradient>
+
+    <!-- Metallic orange accent for T top bar & cursor -->
+    <linearGradient id="orangeBar" x1="681" y1="322" x2="681" y2="404" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FDBA74"/>
+      <stop offset="45%" stop-color="#F97316"/>
+      <stop offset="100%" stop-color="#C2410C"/>
+    </linearGradient>
+
+    <linearGradient id="orangeDot" x1="796" y1="628" x2="796" y2="696" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FDBA74"/>
+      <stop offset="45%" stop-color="#F97316"/>
+      <stop offset="100%" stop-color="#C2410C"/>
+    </linearGradient>
+
+    <filter id="lift" x="-12%" y="-12%" width="124%" height="128%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.75"/>
+    </filter>
+  </defs>
+
+  <!-- macOS squircle canvas with standard safe inset (824x824 centered) -->
+  <rect x="100" y="100" width="824" height="824" rx="188" fill="url(#bg)"/>
+  <rect x="104" y="104" width="816" height="816" rx="184" fill="none" stroke="url(#rim)" stroke-width="6"/>
+
+  <g filter="url(#lift)">
+    <!-- Geometric "C" with subtly rounded terminal corners -->
+    <path
+      d="M492 406 C465 356 418 322 356 322 C256 322 190 400 190 512 C190 624 256 702 356 702 C418 702 465 668 492 618 C496 610 493 600 485 596 L436 575 C428 572 419 576 415 584 C402 612 382 626 356 626 C306 626 276 582 276 512 C276 442 306 398 356 398 C382 398 402 412 415 440 C419 448 428 452 436 449 L485 428 C493 424 496 414 492 406 Z"
+      fill="url(#silver)"
+    />
+
+    <!-- Geometric "T" vertical stem with subtly rounded bottom corners -->
+    <rect x="636" y="388" width="90" height="308" rx="16" fill="url(#silver)"/>
+
+    <!-- Geometric "T" top bar with subtly rounded corners (orange accent) -->
+    <rect x="528" y="322" width="306" height="82" rx="16" fill="url(#orangeBar)"/>
+
+    <!-- Code cursor block with matching subtle corner radius (orange accent) -->
+    <rect x="762" y="628" width="68" height="68" rx="16" fill="url(#orangeDot)"/>
+  </g>
+</svg>
