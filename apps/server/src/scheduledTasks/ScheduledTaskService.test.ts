@@ -825,7 +825,7 @@ it.effect("a fresh-session task launches one thread, then starts each later run 
 );
 
 it.effect(
-  "new_thread scheduled tasks tag newly created threads with the default scheduled group",
+  "scheduled tasks tag newly created threads with the default scheduled group across thread modes",
   () =>
     Effect.gen(function* () {
       const dispatched = yield* Ref.make<
@@ -836,15 +836,27 @@ it.effect(
           readonly tagged?: boolean;
         }>
       >([]);
-      const launched = ThreadId.make("thread:scheduled-new");
+      const launchCount = yield* Ref.make(0);
+      const projectId = ProjectId.make("project:test");
       const layer = ScheduledTaskService.layer.pipe(
         Layer.provide(
           Layer.mergeAll(
             ManagedPolicy.layerTest(),
             Layer.mock(ThreadLaunchService.ThreadLaunchService)({
-              launch: () => Effect.succeed({ threadId: launched, resumed: false } as never),
+              launch: () =>
+                Ref.updateAndGet(launchCount, (count) => count + 1).pipe(
+                  Effect.map(
+                    (count) =>
+                      ({
+                        threadId: ThreadId.make(`thread:scheduled-new-${count}`),
+                        resumed: false,
+                      }) as never,
+                  ),
+                ),
             }),
             Layer.mock(ThreadManagementService.ThreadManagementService)({
+              getThreadShell: () => Effect.succeed(threadShell(projectId)),
+              sendToThread: () => Effect.succeed({} as never),
               dispatch: (command) =>
                 Ref.update(dispatched, (all) => [
                   ...all,
@@ -870,30 +882,52 @@ it.effect(
       );
       yield* Effect.gen(function* () {
         const service = yield* ScheduledTaskService.ScheduledTaskService;
-        const id = ScheduledTaskId.make("task:new-thread-tag");
-        yield* service.upsert({
-          id,
-          title: "Daily Digest",
-          prompt: "Summarize logs",
-          enabled: true,
-          schedule: { type: "interval", everyMs: 60_000 },
-          projectId: ProjectId.make("project:test"),
-          threadMode: "new_thread",
-          workspaceStrategy: { type: "root" },
-          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
-          runtimeMode: "full-access",
-          interactionMode: "default",
-        });
+        const modes = ["new_thread", "fresh_session", "continue"] as const;
+        const expectedDispatches: Array<{
+          readonly type: string;
+          readonly threadId: string;
+          readonly tag: string;
+          readonly tagged: boolean;
+        }> = [];
 
-        assert.equal((yield* service.runNow({ id })).threadId, launched);
-        assert.deepEqual(yield* Ref.get(dispatched), [
-          {
+        for (const [index, threadMode] of modes.entries()) {
+          const id = ScheduledTaskId.make(`task:tag:${threadMode}`);
+          yield* service.upsert({
+            id,
+            title: `Daily Digest (${threadMode})`,
+            prompt: "Summarize logs",
+            enabled: true,
+            schedule: { type: "interval", everyMs: 60_000 },
+            projectId,
+            threadMode,
+            workspaceStrategy: { type: "root" },
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+          });
+
+          const expectedThreadId = ThreadId.make(`thread:scheduled-new-${index + 1}`);
+          const firstRun = yield* service.runNow({ id });
+          assert.equal(firstRun.threadId, expectedThreadId);
+          assert.equal(
+            firstRun.task.threadId,
+            threadMode === "new_thread" ? null : expectedThreadId,
+          );
+          expectedDispatches.push({
             type: "thread.tag.set",
-            threadId: launched,
+            threadId: expectedThreadId,
             tag: "group:定时任务",
             tagged: true,
-          },
-        ]);
+          });
+
+          // Subsequent runs on a bound thread reuse it without re-dispatching the group tag.
+          if (threadMode !== "new_thread") {
+            const secondRun = yield* service.runNow({ id });
+            assert.equal(secondRun.threadId, expectedThreadId);
+          }
+        }
+
+        assert.deepEqual(yield* Ref.get(dispatched), expectedDispatches);
       }).pipe(Effect.provide(layer));
     }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
