@@ -1,27 +1,34 @@
 <p align="center">
-  <a href="https://t3.codes">
-    <img src="./assets/prod/t3-black-web-icon-192x192.png" width="80" height="80" alt="T3 Code logo" />
-  </a>
+  <img src="./assets/ct/ct-web-icon-192x192.png" width="80" height="80" alt="CT Code logo" />
 </p>
 
-<h1 align="center">T3 Code</h1>
+<h1 align="center">CT Code</h1>
 
-<p align="center">The open-source control plane for coding agents.</p>
+<p align="center">An unofficial fork based on the MIT-licensed T3 Code source code, customized for internal CT Studio integration.</p>
 
-<p align="center">
-  <a href="https://t3.codes/download"><strong>Download</strong></a> ·
-  <a href="https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824">iOS</a> ·
-  <a href="https://play.google.com/store/apps/details?id=com.t3tools.t3code">Android</a> ·
-  <a href="https://app.t3.codes">Web</a> ·
-  <a href="./docs/README.md">Docs</a> ·
-  <a href="https://discord.gg/jn4EGJjrvv">Discord</a>
-</p>
+> **Unofficial Fork Notice:** CT Code is an **unofficial** derivative project based on the MIT-licensed [T3 Code](https://github.com/pingdotgg/t3code) source code. It is **not** affiliated with, endorsed by, or maintained by T3 Tools, Inc. For the official T3 Code project, visit [github.com/pingdotgg/t3code](https://github.com/pingdotgg/t3code) or [t3.codes](https://t3.codes).
 
-<p align="center">
-  <a href="https://t3.codes">
-    <img src="./.github/readme/hero.webp" width="100%" alt="T3 Code on desktop with a finished Claude thread, next to the phone app asking to approve a command from Codex" />
-  </a>
-</p>
+## Install CT Code
+
+Coexisting desktop build (`CT Code.app`, bundle ID `com.ct.code`, isolated user data in `~/.t3-ct`). Installs alongside the official T3 Code app without overwriting it.
+
+- **macOS (Apple Silicon / arm64)**:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/linas-lin/t3code/ct-studio/scripts/install-ct.sh | bash
+  ```
+
+- **Windows (x64, PowerShell)**:
+
+  ```powershell
+  irm https://raw.githubusercontent.com/linas-lin/t3code/ct-studio/scripts/install-ct.ps1 | iex
+  ```
+
+- **Manual downloads**: [GitHub Releases](https://github.com/linas-lin/t3code/releases)
+
+---
+
+> Below is the upstream documentation from the base repository.
 
 T3 Code runs the coding agents on your machine and gives them one fast interface. Start a thread at your desk, then approve the next step from your phone.
 
