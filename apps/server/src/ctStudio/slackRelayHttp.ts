@@ -56,18 +56,26 @@ export const layer = Layer.unwrap(
       }),
     );
 
-    const updateConfigRoute = HttpRouter.add(
+    const handleUpdateConfig = Effect.gen(function* () {
+      yield* requireOperateSession;
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const patch = (yield* request.json.pipe(
+        Effect.orElseSucceed(() => ({})),
+      )) as SlackRelayConfigPatch;
+      const snapshot = yield* service.updateConfig(patch);
+      return jsonNoStore(snapshot);
+    });
+
+    // Desktop renderer sends cross-origin requests; server CORS allows POST, keep PUT for compatibility.
+    const updateConfigPostRoute = HttpRouter.add(
+      "POST",
+      `${ROUTE_PREFIX}/config`,
+      handleUpdateConfig,
+    );
+    const updateConfigPutRoute = HttpRouter.add(
       "PUT",
       `${ROUTE_PREFIX}/config`,
-      Effect.gen(function* () {
-        yield* requireOperateSession;
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const patch = (yield* request.json.pipe(
-          Effect.orElseSucceed(() => ({})),
-        )) as SlackRelayConfigPatch;
-        const snapshot = yield* service.updateConfig(patch);
-        return jsonNoStore(snapshot);
-      }),
+      handleUpdateConfig,
     );
 
     const reconnectRoute = HttpRouter.add(
@@ -121,7 +129,8 @@ export const layer = Layer.unwrap(
 
     return Layer.mergeAll(
       getSnapshotRoute,
-      updateConfigRoute,
+      updateConfigPostRoute,
+      updateConfigPutRoute,
       reconnectRoute,
       sendDraftRoute,
       discardDraftRoute,

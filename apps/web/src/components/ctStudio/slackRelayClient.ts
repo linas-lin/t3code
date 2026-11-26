@@ -156,7 +156,8 @@ export function fetchSlackRelaySnapshot(): Promise<SlackRelaySnapshot> {
 }
 
 export function updateSlackRelayConfig(patch: SlackRelayConfigPatch): Promise<SlackRelaySnapshot> {
-  return requestSlackRelay<SlackRelaySnapshot>("/config", { method: "PUT", body: patch });
+  // Desktop renderer sends cross-origin requests; server CORS only permits GET, POST, and OPTIONS.
+  return requestSlackRelay<SlackRelaySnapshot>("/config", { method: "POST", body: patch });
 }
 
 export function reconnectSlackRelay(): Promise<SlackRelaySnapshot> {
