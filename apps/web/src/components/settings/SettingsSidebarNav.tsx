@@ -26,6 +26,7 @@ import {
   LayoutGridIcon,
   MicIcon,
   PaletteIcon,
+  PuzzleIcon,
   SearchIcon,
   ServerIcon,
   Settings2Icon,
@@ -94,6 +95,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   Record<SettingsPath, ComponentType<{ className?: string }>>
 > = {
   "/settings/ct-studio": LayoutGridIcon,
+  "/settings/plugins": PuzzleIcon,
   "/settings/general": Settings2Icon,
   "/settings/diagnostics": WrenchIcon,
   "/settings/voice": MicIcon,

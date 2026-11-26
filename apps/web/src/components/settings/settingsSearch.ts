@@ -19,6 +19,7 @@ import type { ResolvedSettingsScope } from "./settingsScope";
 
 export type SettingsPath =
   | "/settings/ct-studio"
+  | "/settings/plugins"
   | "/settings/projects"
   | "/settings/general"
   | "/settings/diagnostics"
@@ -99,6 +100,7 @@ export interface SettingsSearchAvailability {
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/ct-studio": msg("CT Studio"),
+  "/settings/plugins": msg("Plugins"),
   "/settings/diagnostics": msg("Diagnostics"),
   "/settings/projects": msg("Projects"),
   "/settings/general": msg("General"),
@@ -146,6 +148,7 @@ const ALL_SETTINGS_NAV_GROUPS: ReadonlyArray<SettingsNavGroup> = [
     headingHidden: true,
     paths: [
       "/settings/ct-studio",
+      "/settings/plugins",
       "/settings/general",
       "/settings/appearance",
       "/settings/chat",
@@ -1529,6 +1532,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     secretProvidersOnly: true,
   },
   {
+    id: "plugins-installed",
+    title: msg("Plugins"),
+    to: "/settings/plugins",
+    searchTerms: [msg("plugins extensions install git local dev link reload uninstall")],
+  },
+  {
     id: "archive",
     title: msg("Archived threads"),
     to: "/settings/archived",
@@ -1542,6 +1551,7 @@ const SEARCH_ITEMS_BY_ID = new Map(SETTINGS_SEARCH_ITEMS.map((item) => [item.id,
 
 const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScope | null>> = {
   "/settings/ct-studio": null,
+  "/settings/plugins": null,
   "/settings/diagnostics": "environment",
   "/settings/projects": "project",
   "/settings/general": null,

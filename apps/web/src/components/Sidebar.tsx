@@ -260,6 +260,7 @@ import {
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarCtStudioEntry } from "./ctStudio/SidebarCtStudioEntry";
+import { PluginSidebarEntries } from "./plugins/PluginSidebarEntries";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { TooltipProvider, TooltipScrollDismissArea } from "./ui/tooltip";
 import {
@@ -3208,6 +3209,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     <SidebarFolderDrop>
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarCtStudioEntry />
+      <PluginSidebarEntries />
       <SidebarContent
         ref={sidebarContentRef}
         className="min-h-full"

@@ -1,0 +1,24 @@
+{
+  "id": "demo-plugin",
+  "name": "Demo Plugin",
+  "version": "0.1.0",
+  "description": "Minimal runnable verification plugin for CT Code Plugin Host",
+  "apiVersion": 1,
+  "ui": {
+    "entry": "ui.mjs",
+    "css": "ui.css"
+  },
+  "backend": {
+    "activation": "lazy",
+    "command": ["node", "server.mjs"],
+    "healthcheck": "/api/health"
+  },
+  "permissions": ["threads", "workspace", "backend"],
+  "contributes": {
+    "sidebar": {
+      "label": "Demo Plugin",
+      "icon": "puzzle"
+    },
+    "slots": ["mainView", "threadPanel", "settingsSection", "commands"]
+  }
+}

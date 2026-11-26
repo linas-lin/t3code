@@ -2,6 +2,7 @@ import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 
 import { CtStudioKeepAliveLayer } from "../components/ctStudio/CtStudioKeepAliveLayer";
 import { CodeExplorerHost } from "../components/ctStudio/codeExplorer/CodeExplorerHost";
+import { PluginHostLayer } from "../components/plugins/PluginHostLayer";
 import { ThreadRouteView } from "../components/ThreadRouteView";
 import { GlobalVoiceInputIndicator } from "../components/chat/GlobalVoiceInputIndicator";
 import { isAppModalPage } from "../components/sidebar/mainAppLocation";
@@ -28,6 +29,7 @@ function ChatRouteLayout() {
       )}
       {modalOpen ? <Outlet /> : null}
       <CtStudioKeepAliveLayer />
+      <PluginHostLayer />
       <CodeExplorerHost />
       <GlobalVoiceInputIndicator hidden={modalOpen} />
     </>

@@ -1,0 +1,12 @@
+[data-plugin-id="demo-plugin"] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+[data-plugin-id="demo-plugin"] .demo-plugin-card {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  padding: 12px;
+}

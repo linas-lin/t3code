@@ -296,6 +296,7 @@ import { readIssueListPreferences } from "~/components/issue/issueListPreference
 import { IssueGlyph } from "~/components/issue/issuePresentation";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
 import { threadRecentUse } from "@t3tools/shared/paletteSearch";
+import { usePluginCommandItems } from "./plugins/pluginCommandItems";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 const ADD_PROJECT_ENTRY_GROUP = "add-project";
@@ -511,6 +512,7 @@ function OpenCommandPaletteDialog(props: {
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
+  const pluginCommandItems = usePluginCommandItems(ITEM_ICON_CLASS);
   const paletteRouteTarget = useThreadRouteTarget();
   const projects = useProjects();
   const referenceThreadRef =
@@ -1746,6 +1748,8 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/ct-studio", search: {} });
     },
   });
+
+  actionItems.push(...pluginCommandItems);
 
   actionItems.push({
     kind: "action",

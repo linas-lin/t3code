@@ -101,6 +101,8 @@ import * as PeerForwarding from "./peer/PeerForwarding.ts";
 import * as RemoteDelegation from "./peer/RemoteDelegation.ts";
 import * as SlackRelayHttp from "./ctStudio/slackRelayHttp.ts";
 import * as SlackRelayService from "./ctStudio/SlackRelayService.ts";
+import * as PluginHttp from "./plugins/pluginHttp.ts";
+import * as PluginService from "./plugins/PluginService.ts";
 import * as PersonalMemoryService from "./personal/PersonalMemoryService.ts";
 import * as PersonalReflectionService from "./personal/PersonalReflectionService.ts";
 import * as PeerClientPairing from "./peer/PeerClientPairing.ts";
@@ -926,6 +928,7 @@ const layerMakeRoutes = Layer.mergeAll(
     GuestHttp.layer,
     LinkThreadHttp.layer,
     SlackRelayHttp.layer,
+    PluginHttp.layer,
     DeviceHubProxy.layer,
     ServerBrowserStream.routeLayer,
     PreviewTunnel.routeLayer,
@@ -980,6 +983,7 @@ const layerMakeRoutes = Layer.mergeAll(
       Layer.provide(Layer.merge(ProjectionStoreV2.layer, layerServerSettings)),
     ),
   ),
+  Layer.provide(PluginService.PluginService.layer.pipe(Layer.provide(NetService.layer))),
   Layer.provide(layerServerSettings),
   Layer.provide(PreviewAutomationBroker.layer),
   Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(layerDesktopAppUpdate))),

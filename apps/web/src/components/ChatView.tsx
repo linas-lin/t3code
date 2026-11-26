@@ -3,6 +3,7 @@ import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { useGT, useMessages } from "gt-react";
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { SlackRelayThreadDraftBar } from "./ctStudio/SlackRelayThreadDraftBar";
+import { PluginThreadBannerSlots } from "./plugins/PluginThreadSlots";
 import { draftSupportedRuntimeModes } from "./chat/runtimeModeConfig";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
@@ -3822,6 +3823,7 @@ export default function ChatView(props: ChatViewProps) {
                   >
                     <ChildThreadApprovals threadRef={activeThreadRef} />
                     <SlackRelayThreadDraftBar threadId={activeThreadRef?.threadId ?? null} />
+                    <PluginThreadBannerSlots threadRef={activeThreadRef} />
                     <div className="relative">
                       <ComposerSurface.Shell contextRow={showComposerContextStrip}>
                         <ComposerSurface.Host

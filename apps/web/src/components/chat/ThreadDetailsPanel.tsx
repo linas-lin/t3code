@@ -45,6 +45,7 @@ import { SlidersHorizontalIcon } from "lucide-react";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { ThreadCtStudioCard, ThreadCtStudioPopoverRow } from "../ctStudio/ThreadCtStudioCard";
 import { useCtStudioStore } from "../ctStudio/ctStudioStore";
+import { useThreadPluginDecorations } from "../plugins/PluginThreadSlots";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
   THREAD_DETAILS_PANEL_LABEL_CLASS,
@@ -158,15 +159,23 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
       : {}),
   };
 
+  const { belowCard, popoverFooter } = useThreadPluginDecorations({
+    threadRef: activeThreadRef,
+    legacyBelowCard: ctStudioConnected ? (
+      <ThreadCtStudioCard threadRef={activeThreadRef} />
+    ) : undefined,
+    legacyPopoverFooter: ctStudioConnected ? (
+      <ThreadCtStudioPopoverRow threadRef={activeThreadRef} />
+    ) : undefined,
+  });
+
   return (
     <ThreadDetailsCard
       threadRef={{ environmentId: props.environmentId, threadId: props.threadId }}
       anchor={props.anchor}
       handle={props.handle}
-      belowCard={ctStudioConnected ? <ThreadCtStudioCard threadRef={activeThreadRef} /> : undefined}
-      popoverFooter={
-        ctStudioConnected ? <ThreadCtStudioPopoverRow threadRef={activeThreadRef} /> : undefined
-      }
+      belowCard={belowCard}
+      popoverFooter={popoverFooter}
       contentKey={THREAD_DETAILS_ITEMS.filter((item) => visible[item.id])
         .map((item) => item.id)
         .join(",")}

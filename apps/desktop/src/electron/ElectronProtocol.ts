@@ -83,6 +83,7 @@ function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrationInpu
     "'self'",
     "'unsafe-inline'",
     "'wasm-unsafe-eval'",
+    "blob:",
     ...(clerkOrigin ? [clerkOrigin] : []),
     "https://challenges.cloudflare.com",
   ];
