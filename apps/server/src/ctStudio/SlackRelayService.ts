@@ -39,6 +39,7 @@ import {
   isSlackNoReplyResponse,
   mergeSlackRelayConfigPatch,
   normalizeSlackRelayConfig,
+  parseSlackMessageUrl,
   selectSlackThreadHistory,
   shouldProcessSlackRelayEvent,
   toPublicSlackRelayConfig,
@@ -120,6 +121,49 @@ function safeSendWs(ws: WebSocket | null, message: string): void {
   }
 }
 
+export interface SlackWorkspaceIdentity {
+  readonly team: string | null;
+  readonly teamId: string | null;
+  readonly url: string | null;
+  readonly user: string | null;
+  readonly userId: string | null;
+}
+
+export interface SlackChannelSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly isPrivate: boolean;
+  readonly isMember: boolean;
+}
+
+export interface SlackUserSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly displayName: string;
+  readonly realName: string;
+  readonly isBot: boolean;
+}
+
+export interface SlackPostMessageInput {
+  readonly channel: string;
+  readonly text: string;
+  readonly threadTs?: string | undefined;
+  readonly asBot?: boolean | undefined;
+  readonly withPrefix?: boolean | undefined;
+  readonly dryRun?: boolean | undefined;
+}
+
+export interface SlackPostMessageResult {
+  readonly dryRun: boolean;
+  readonly workspace: SlackWorkspaceIdentity | null;
+  readonly as: "user" | "bot";
+  readonly channelId: string;
+  readonly channelName: string | null;
+  readonly ts: string | null;
+  readonly threadTs: string | null;
+  readonly text: string;
+}
+
 export interface SlackRelayServiceShape {
   readonly getSnapshot: () => Effect.Effect<SlackRelaySnapshot>;
   readonly updateConfig: (patch: SlackRelayConfigPatch) => Effect.Effect<SlackRelaySnapshot>;
@@ -129,6 +173,23 @@ export interface SlackRelayServiceShape {
     overrideText?: string,
   ) => Effect.Effect<SlackRelaySnapshot, SlackRelayError>;
   readonly discardDraft: (draftId: string) => Effect.Effect<SlackRelaySnapshot, SlackRelayError>;
+  readonly listChannels: (query?: string) => Effect.Effect<
+    {
+      readonly workspace: SlackWorkspaceIdentity | null;
+      readonly channels: ReadonlyArray<SlackChannelSummary>;
+    },
+    SlackRelayError
+  >;
+  readonly listUsers: (query?: string) => Effect.Effect<
+    {
+      readonly workspace: SlackWorkspaceIdentity | null;
+      readonly users: ReadonlyArray<SlackUserSummary>;
+    },
+    SlackRelayError
+  >;
+  readonly sendSlackMessage: (
+    input: SlackPostMessageInput,
+  ) => Effect.Effect<SlackPostMessageResult, SlackRelayError>;
 }
 
 export class SlackRelayService extends Context.Service<SlackRelayService, SlackRelayServiceShape>()(
@@ -988,12 +1049,278 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         return yield* buildSnapshot();
       });
 
+      const fetchWorkspaceIdentity = Effect.fn("SlackRelayService.fetchWorkspaceIdentity")(
+        function* (token: string) {
+          if (!token) return null as SlackWorkspaceIdentity | null;
+          const res = yield* slackApiCall("auth.test", token, {}, { isGet: true }).pipe(
+            Effect.orElseSucceed(() => null),
+          );
+          if (!res) return null;
+          return {
+            team: typeof res.team === "string" ? res.team : null,
+            teamId: typeof res.team_id === "string" ? res.team_id : null,
+            url: typeof res.url === "string" ? res.url : null,
+            user: typeof res.user === "string" ? res.user : null,
+            userId: typeof res.user_id === "string" ? res.user_id : null,
+          } satisfies SlackWorkspaceIdentity;
+        },
+      );
+
+      const listChannelsInternal = Effect.fn("SlackRelayService.listChannelsInternal")(function* (
+        token: string,
+        query?: string,
+      ) {
+        const all: Array<{
+          id?: string;
+          name?: string;
+          is_private?: boolean;
+          is_member?: boolean;
+        }> = [];
+        let cursor: string | undefined;
+        for (let page = 0; page < 5; page += 1) {
+          const res = yield* slackApiCall(
+            "conversations.list",
+            token,
+            {
+              types: "public_channel,private_channel",
+              exclude_archived: true,
+              limit: 200,
+              cursor,
+            },
+            { isGet: true },
+          );
+          if (Array.isArray(res.channels)) {
+            all.push(
+              ...(res.channels as Array<{
+                id?: string;
+                name?: string;
+                is_private?: boolean;
+                is_member?: boolean;
+              }>),
+            );
+          }
+          const meta = res.response_metadata as { next_cursor?: string } | undefined;
+          const next = typeof meta?.next_cursor === "string" ? meta.next_cursor.trim() : "";
+          if (!next) break;
+          cursor = next;
+        }
+        const q = (query ?? "").trim().toLowerCase().replace(/^#/, "");
+        return all
+          .filter(
+            (ch): ch is { id: string; name?: string; is_private?: boolean; is_member?: boolean } =>
+              typeof ch.id === "string" && ch.id.length > 0,
+          )
+          .map((ch): SlackChannelSummary => ({
+            id: ch.id,
+            name: ch.name ?? "",
+            isPrivate: Boolean(ch.is_private),
+            isMember: Boolean(ch.is_member),
+          }))
+          .filter(
+            (ch) => !q || ch.name.toLowerCase().includes(q) || ch.id.toLowerCase().includes(q),
+          );
+      });
+
+      const listChannels = Effect.fn("SlackRelayService.listChannels")(function* (query?: string) {
+        const token = config.botToken || config.userToken;
+        if (!token) {
+          return yield* new SlackRelayError({
+            message:
+              "未配置 Slack Bot Token 或 User Token，请先在 CT Code 设置 → CT Studio → Slack Relay 中配置。",
+          });
+        }
+        const workspace = yield* fetchWorkspaceIdentity(token);
+        const channels = yield* listChannelsInternal(token, query);
+        return { workspace, channels };
+      });
+
+      const listUsers = Effect.fn("SlackRelayService.listUsers")(function* (query?: string) {
+        const token = config.botToken || config.userToken;
+        if (!token) {
+          return yield* new SlackRelayError({
+            message:
+              "未配置 Slack Bot Token 或 User Token，请先在 CT Code 设置 → CT Studio → Slack Relay 中配置。",
+          });
+        }
+        const workspace = yield* fetchWorkspaceIdentity(token);
+        const all: Array<{
+          id?: string;
+          name?: string;
+          real_name?: string;
+          deleted?: boolean;
+          is_bot?: boolean;
+          profile?: { display_name?: string; real_name?: string };
+        }> = [];
+        let cursor: string | undefined;
+        for (let page = 0; page < 5; page += 1) {
+          const res = yield* slackApiCall(
+            "users.list",
+            token,
+            { limit: 200, cursor },
+            { isGet: true },
+          );
+          if (Array.isArray(res.members)) {
+            all.push(
+              ...(res.members as Array<{
+                id?: string;
+                name?: string;
+                real_name?: string;
+                deleted?: boolean;
+                is_bot?: boolean;
+                profile?: { display_name?: string; real_name?: string };
+              }>),
+            );
+          }
+          const meta = res.response_metadata as { next_cursor?: string } | undefined;
+          const next = typeof meta?.next_cursor === "string" ? meta.next_cursor.trim() : "";
+          if (!next) break;
+          cursor = next;
+        }
+        const q = (query ?? "").trim().toLowerCase().replace(/^@/, "");
+        const users = all
+          .filter(
+            (
+              u,
+            ): u is {
+              id: string;
+              name?: string;
+              real_name?: string;
+              deleted?: boolean;
+              is_bot?: boolean;
+              profile?: { display_name?: string; real_name?: string };
+            } => !u.deleted && typeof u.id === "string" && u.id.length > 0,
+          )
+          .map((u): SlackUserSummary => ({
+            id: u.id,
+            name: u.name ?? "",
+            displayName: u.profile?.display_name ?? "",
+            realName: u.profile?.real_name ?? u.real_name ?? "",
+            isBot: Boolean(u.is_bot),
+          }))
+          .filter(
+            (u) =>
+              !q ||
+              u.id.toLowerCase().includes(q) ||
+              u.name.toLowerCase().includes(q) ||
+              u.displayName.toLowerCase().includes(q) ||
+              u.realName.toLowerCase().includes(q),
+          );
+        return { workspace, users };
+      });
+
+      const sendSlackMessage = Effect.fn("SlackRelayService.sendSlackMessage")(function* (
+        input: SlackPostMessageInput,
+      ) {
+        const asBot = Boolean(input.asBot);
+        const postToken = asBot ? config.botToken : config.userToken;
+        if (!postToken) {
+          return yield* new SlackRelayError({
+            message: asBot
+              ? "未配置 Slack Bot Token (xoxb-...)，请在设置 → CT Studio → Slack Relay 中配置。"
+              : "未配置 Slack User Token (xoxp-...)，请在设置 → CT Studio → Slack Relay 中配置。",
+          });
+        }
+        const lookupToken = config.botToken || config.userToken;
+        const finalText = input.withPrefix
+          ? formatSlackReplyText(input.text, config)
+          : input.text.trim();
+        if (!finalText) {
+          return yield* new SlackRelayError({ message: "消息正文不能为空。" });
+        }
+
+        const trimmedTarget = input.channel.trim();
+        if (!trimmedTarget) {
+          return yield* new SlackRelayError({ message: "目标频道或用户不能为空。" });
+        }
+
+        let channelId: string;
+        let channelName: string | null = null;
+        let threadTsFromUrl: string | null = null;
+
+        const fromUrl = parseSlackMessageUrl(trimmedTarget);
+        if (fromUrl) {
+          channelId = fromUrl.channelId;
+          channelName = yield* resolveChannelName(config, channelId);
+          threadTsFromUrl = fromUrl.threadTs;
+        } else if (/^[CGD][A-Z0-9]+$/.test(trimmedTarget)) {
+          channelId = trimmedTarget;
+          channelName = yield* resolveChannelName(config, channelId);
+        } else {
+          const normalizedUser = trimmedTarget.replace(/^@/, "");
+          if (/^U[A-Z0-9]+$/.test(normalizedUser)) {
+            const opened = yield* slackApiCall("conversations.open", postToken, {
+              users: normalizedUser,
+            });
+            const openedChannel = opened.channel as { id?: string } | undefined;
+            if (!openedChannel?.id) {
+              return yield* new SlackRelayError({
+                message: `无法打开与用户 ${normalizedUser} 的私信频道（请确认 Token 具备 im:write 权限）。`,
+              });
+            }
+            channelId = openedChannel.id;
+            const resolvedName = yield* resolveUserName(config, normalizedUser);
+            channelName = `@${resolvedName ?? normalizedUser}`;
+          } else {
+            const wantedName = trimmedTarget.replace(/^#/, "").toLowerCase();
+            const channels = yield* listChannelsInternal(lookupToken, wantedName);
+            const exact = channels.find((ch) => ch.name.toLowerCase() === wantedName);
+            if (!exact) {
+              const suggestions = channels
+                .slice(0, 5)
+                .map((ch) => `#${ch.name} (${ch.id})`)
+                .join(", ");
+              return yield* new SlackRelayError({
+                message:
+                  `未找到频道 #${wantedName}` + (suggestions ? `；相近频道：${suggestions}` : ""),
+              });
+            }
+            channelId = exact.id;
+            channelName = exact.name;
+          }
+        }
+
+        const workspace = yield* fetchWorkspaceIdentity(postToken);
+        const resolvedThreadTs = input.threadTs?.trim() || threadTsFromUrl || null;
+
+        if (input.dryRun) {
+          return {
+            dryRun: true,
+            workspace,
+            as: asBot ? "bot" : "user",
+            channelId,
+            channelName,
+            ts: null,
+            threadTs: resolvedThreadTs,
+            text: finalText,
+          } satisfies SlackPostMessageResult;
+        }
+
+        const res = yield* slackApiCall("chat.postMessage", postToken, {
+          channel: channelId,
+          ...(resolvedThreadTs ? { thread_ts: resolvedThreadTs } : {}),
+          text: finalText,
+        });
+        return {
+          dryRun: false,
+          workspace,
+          as: asBot ? "bot" : "user",
+          channelId,
+          channelName,
+          ts: typeof res.ts === "string" ? res.ts : null,
+          threadTs: resolvedThreadTs,
+          text: finalText,
+        } satisfies SlackPostMessageResult;
+      });
+
       return {
         getSnapshot,
         updateConfig,
         reconnect,
         sendDraft,
         discardDraft,
+        listChannels,
+        listUsers,
+        sendSlackMessage,
       };
     }),
   );

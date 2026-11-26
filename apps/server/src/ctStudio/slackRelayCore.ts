@@ -315,6 +315,34 @@ export function parseSlackMentions(text: string): ReadonlyArray<string> {
   return [...ids];
 }
 
+export interface ParsedSlackMessageUrl {
+  readonly workspaceSubdomain: string;
+  readonly channelId: string;
+  readonly messageTs: string | null;
+  readonly threadTs: string | null;
+}
+
+export function parseSlackMessageUrl(rawUrl: string): ParsedSlackMessageUrl | null {
+  try {
+    const u = new URL(rawUrl.trim());
+    if (!u.hostname.endsWith(".slack.com")) return null;
+    const match = u.pathname.match(/^\/archives\/([CGD][A-Z0-9]+)(?:\/p(\d{16}))?/i);
+    if (!match || !match[1]) return null;
+    const channelId = match[1].toUpperCase();
+    const rawTs = match[2];
+    const messageTs = rawTs ? `${rawTs.slice(0, 10)}.${rawTs.slice(10)}` : null;
+    const threadTs = u.searchParams.get("thread_ts") || messageTs || null;
+    return {
+      workspaceSubdomain: u.hostname.replace(/\.slack\.com$/, ""),
+      channelId,
+      messageTs,
+      threadTs,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function slackEventKey(event: SlackRelayMentionPayload["event"]): string {
   return `${event.channel}:${event.ts}`;
 }

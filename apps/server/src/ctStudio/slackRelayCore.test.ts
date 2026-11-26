@@ -9,6 +9,7 @@ import {
   maskSecretValue,
   mergeSlackRelayConfigPatch,
   parseSlackMentions,
+  parseSlackMessageUrl,
   selectSlackThreadHistory,
   shouldProcessSlackRelayEvent,
   toPublicSlackRelayConfig,
@@ -247,5 +248,17 @@ describe("slackRelayCore", () => {
     expect(isSlackNoReplyResponse("[[NO_REPLY]]")).toBe(true);
     expect(isSlackNoReplyResponse(" `[[no_reply]]` ")).toBe(true);
     expect(isSlackNoReplyResponse("我来查一下日志")).toBe(false);
+
+    expect(
+      parseSlackMessageUrl(
+        "https://xm-bahq.slack.com/archives/C0CLWAVC273/p1764079801123456?thread_ts=1764079000.000100",
+      ),
+    ).toEqual({
+      workspaceSubdomain: "xm-bahq",
+      channelId: "C0CLWAVC273",
+      messageTs: "1764079801.123456",
+      threadTs: "1764079000.000100",
+    });
+    expect(parseSlackMessageUrl("https://example.com/nope")).toBeNull();
   });
 });
