@@ -585,7 +585,6 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         ...(isCtDesktopVariant()
           ? {
               T3CODE_ENVIRONMENT_LABEL_SUFFIX: "CT",
-              T3CODE_ANTIGRAVITY_SKIP_MACOS_KEYRING: "1",
             }
           : {}),
       },
