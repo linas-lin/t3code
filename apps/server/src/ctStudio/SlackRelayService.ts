@@ -247,6 +247,7 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
       let lastError: string | null = null;
 
       let activeSocket: WebSocket | null = null;
+      let cleanupActiveSocketListeners: (() => void) | null = null;
       let backoffMs = 1000;
       let stopped = false;
 
@@ -359,6 +360,10 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
       });
 
       const disconnectSocket = () => {
+        if (cleanupActiveSocketListeners) {
+          cleanupActiveSocketListeners();
+          cleanupActiveSocketListeners = null;
+        }
         if (activeSocket) {
           const socket = activeSocket;
           activeSocket = null;
@@ -401,17 +406,17 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
 
         const nowIso = DateTime.formatIso(yield* DateTime.now);
         const ws = new WebSocket(wsUrl.toString());
-        activeSocket = ws;
 
-        ws.addEventListener("open", () => {
+        const onOpen = () => {
           if (activeSocket !== ws) return;
           backoffMs = 1000;
           connectionState = "connected";
           lastConnectedAt = nowIso;
           lastError = null;
-        });
+        };
 
-        ws.addEventListener("message", (event) => {
+        const onMessage = (event: MessageEvent) => {
+          if (activeSocket !== ws) return;
           const raw = String(event.data);
           if (raw === "pong") return;
           try {
@@ -422,11 +427,28 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
           } catch {
             // ignore malformed message
           }
-        });
+        };
 
-        ws.addEventListener("close", (event) => {
+        const onError = () => {
+          if (activeSocket !== ws) return;
+          connectionState = "error";
+          lastError = "WebSocket 连接异常";
+        };
+
+        const cleanupListeners = () => {
+          ws.removeEventListener("open", onOpen);
+          ws.removeEventListener("message", onMessage);
+          ws.removeEventListener("close", onClose);
+          ws.removeEventListener("error", onError);
+        };
+
+        const onClose = (event: CloseEvent) => {
           if (activeSocket !== ws) return;
           activeSocket = null;
+          if (cleanupActiveSocketListeners === cleanupListeners) {
+            cleanupActiveSocketListeners = null;
+          }
+          cleanupListeners();
           if (stopped || !config.enabled) {
             connectionState = "disabled";
             return;
@@ -434,13 +456,15 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
           connectionState = "error";
           lastError = `连接已断开 (code=${event.code})，准备重连…`;
           Queue.offerUnsafe(reconnectQueue, "reconnect_later");
-        });
+        };
 
-        ws.addEventListener("error", () => {
-          if (activeSocket !== ws) return;
-          connectionState = "error";
-          lastError = "WebSocket 连接异常";
-        });
+        activeSocket = ws;
+        cleanupActiveSocketListeners = cleanupListeners;
+
+        ws.addEventListener("open", onOpen);
+        ws.addEventListener("message", onMessage);
+        ws.addEventListener("close", onClose);
+        ws.addEventListener("error", onError);
       });
 
       const tryReaction = Effect.fn("SlackRelayService.tryReaction")(function* (
@@ -611,8 +635,11 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
       const handleMention = Effect.fn("SlackRelayService.handleMention")(function* (
         payload: SlackRelayMentionPayload,
       ) {
-        lastEventAt = DateTime.formatIso(yield* DateTime.now);
         const currentConfig = config;
+        if (stopped || !currentConfig.enabled) {
+          return;
+        }
+        lastEventAt = DateTime.formatIso(yield* DateTime.now);
         const processedSet = new Set(state.processed);
         const botUserId = currentConfig.requireBotMention
           ? yield* resolveBotUserId(currentConfig)
@@ -739,6 +766,10 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         }
 
         const replyBody = yield* waitForAssistantReply(threadId, runId);
+        if (stopped || !config.enabled) {
+          yield* tryReaction("remove", currentConfig, event.channel, event.ts, "eyes");
+          return;
+        }
         if (isSlackNoReplyResponse(replyBody)) {
           yield* tryReaction("remove", currentConfig, event.channel, event.ts, "eyes");
           return;
