@@ -31,6 +31,7 @@ import {
 } from "@t3tools/provider-acp/server/clientPolicy";
 import type { AcpSessionModeState } from "@t3tools/provider-acp/server/runtimeModel";
 import { T3_MCP_TOOL_NAMES } from "@t3tools/shared/t3McpToolPresentation";
+import { isCtStudioSafeReadOnlyAcpRequest } from "../../ctStudio/readOnlyPermissionPolicy.ts";
 import packageJson from "../../../package.json" with { type: "json" };
 import { normalizeAntigravitySessionUpdate } from "./AntigravityProtocol.ts";
 
@@ -223,7 +224,11 @@ export function antigravityPermissionDisposition(
     return "allow";
   }
   // agy's Auto has already reviewed what it sends; the user decides unless the sandbox forbids it.
-  return policy.runtimeMode === "auto" ? "ask" : disposition;
+  const effectiveDisposition = policy.runtimeMode === "auto" ? "ask" : disposition;
+  if (effectiveDisposition === "ask" && isCtStudioSafeReadOnlyAcpRequest(policy, request)) {
+    return "allow";
+  }
+  return effectiveDisposition;
 }
 
 /** The runtime mode an Antigravity session mode grants; the inverse of `antigravityPermissionMode`. */

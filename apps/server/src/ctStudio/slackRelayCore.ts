@@ -480,15 +480,74 @@ export interface SlackRelayPromptOptions {
   } | null;
 }
 
+function summarizeSlackUrlForTitle(rawUrl: string, rawLabel?: string): string {
+  const label = rawLabel?.trim() ?? "";
+  if (label && !/^https?:\/\//i.test(label)) {
+    return label;
+  }
+  const urlStr = rawUrl.trim();
+  const jiraMatch =
+    /\/browse\/([A-Z][A-Z0-9]+-\d+)/i.exec(urlStr) ??
+    /[?&]selectedIssue=([A-Z][A-Z0-9]+-\d+)/i.exec(urlStr);
+  if (jiraMatch?.[1]) {
+    return jiraMatch[1].toUpperCase();
+  }
+  const ghMatch = /github\.com\/[^/]+\/[^/]+\/(pull|issues)\/(\d+)/i.exec(urlStr);
+  if (ghMatch?.[1] && ghMatch[2]) {
+    return `${ghMatch[1].toLowerCase() === "pull" ? "PR" : "Issue"}#${ghMatch[2]}`;
+  }
+  const wikiMatch = /\/pages\/\d+\/([^/?#]+)/i.exec(urlStr);
+  if (wikiMatch?.[1]) {
+    try {
+      const decoded = decodeURIComponent(wikiMatch[1].replace(/\+/g, " ")).trim();
+      if (decoded) return decoded.slice(0, 24);
+    } catch {
+      // fall through
+    }
+  }
+  if (/\.slack\.com\/archives\//i.test(urlStr)) {
+    return "Slack消息";
+  }
+  try {
+    return new URL(urlStr).hostname.replace(/^www\./i, "");
+  } catch {
+    return "";
+  }
+}
+
+function cleanSlackTitleText(raw: string): string {
+  return String(raw || "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\u00A0/g, " ")
+    .replace(/<@[UW][A-Z0-9]+(?:\|[^>]+)?>/g, " ")
+    .replace(/<!date\^[^|>]+\|([^>]+)>/g, " $1 ")
+    .replace(/<![^>]+>/g, " ")
+    .replace(/<#[CG][A-Z0-9]+\|([^>]+)>/g, " #$1 ")
+    .replace(/<#[CG][A-Z0-9]+>/g, " ")
+    .replace(
+      /<mailto:([^|>]+)(?:\|([^>]+))?>/gi,
+      (_m, addr: string, label?: string) => ` ${label || addr} `,
+    )
+    .replace(
+      /<(https?:\/\/[^|>]+)(?:\|([^>]+))?>/gi,
+      (_m, url: string, label?: string) => ` ${summarizeSlackUrlForTitle(url, label)} `,
+    )
+    .replace(/https?:\/\/[^\s<>]+/gi, (url: string) => ` ${summarizeSlackUrlForTitle(url)} `)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, " ")
+    .replace(/&gt;/g, " ")
+    .replace(/[`*~<>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function formatSlackThreadTitle(
   event: Pick<SlackRelayMentionPayload["event"], "channel" | "text">,
   meta?: { readonly channelName?: string | null; readonly senderName?: string | null },
 ): string {
   const channelLabel = meta?.channelName ? `#${meta.channelName}` : event.channel;
-  const cleaned = event.text
-    .replace(/<@[UW][A-Z0-9]+(?:\|[^>]+)?>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const cleaned = cleanSlackTitleText(event.text);
   const summary = cleaned.length > 36 ? `${cleaned.slice(0, 36)}…` : cleaned || "@提及";
   if (meta?.senderName) {
     return `${channelLabel} · ${meta.senderName}：${summary}`;

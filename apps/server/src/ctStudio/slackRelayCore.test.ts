@@ -261,4 +261,46 @@ describe("slackRelayCore", () => {
     });
     expect(parseSlackMessageUrl("https://example.com/nope")).toBeNull();
   });
+
+  it("cleans Slack link tokens, Jira/PR URLs, and special mrkdwn symbols in thread titles", () => {
+    expect(
+      formatSlackThreadTitle(
+        {
+          channel: "C001",
+          text: "<@U100> <@UBOT> <https://wonder.atlassian.net/browse/BLUE-1234> 帮看下这个需求",
+        },
+        { channelName: "linas-box-test", senderName: "linaslin" },
+      ),
+    ).toBe("#linas-box-test · linaslin：BLUE-1234 帮看下这个需求");
+
+    expect(
+      formatSlackThreadTitle(
+        {
+          channel: "C001",
+          text: "<@U100> <https://github.com/org/repo/pull/88> *加粗* `auto_ship` <!here> <#C123|ba-dev>",
+        },
+        { channelName: "ba-dev", senderName: "Alice" },
+      ),
+    ).toBe("#ba-dev · Alice：PR#88 加粗 auto_ship #ba-dev");
+
+    expect(
+      formatSlackThreadTitle(
+        {
+          channel: "C001",
+          text: "<@U100> <https://example.com/path|订单文档> &lt;详情&gt;",
+        },
+        { channelName: "ba-dev" },
+      ),
+    ).toBe("#ba-dev · 订单文档 详情");
+
+    expect(
+      formatSlackThreadTitle(
+        {
+          channel: "C001",
+          text: "<@U100> <https://wonder.atlassian.net/wiki/spaces/BA/pages/12345/AutoShip+Flow>",
+        },
+        { channelName: "ba-dev" },
+      ),
+    ).toBe("#ba-dev · AutoShip Flow");
+  });
 });

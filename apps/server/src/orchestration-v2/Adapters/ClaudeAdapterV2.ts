@@ -1,4 +1,5 @@
 import * as DocumentText from "../../provider/DocumentText.ts";
+import { isCtStudioSafeReadOnlyClaudeTool } from "../../ctStudio/readOnlyPermissionPolicy.ts";
 import {
   compactDynamicToolOutput,
   mcpToolResultOutput,
@@ -13069,6 +13070,17 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             return {
               behavior: "deny",
               message: `Claude Code's removal safety check denied this command; the user did not reject it. The command did not run. Do not bypass the check by splitting the removal, putting it in a script, or using another tool or shell. If the warning below supplies a safe rewrite, use it and let the same check evaluate it. Otherwise continue the rest of the task without the removal and tell the user what you needed to delete and why. Warning: ${safetyReason}`,
+              toolUseID: callbackOptions.toolUseID,
+            } satisfies PermissionResult;
+          }
+
+          if (
+            callbackOptions.matchedAskRule === undefined &&
+            isCtStudioSafeReadOnlyClaudeTool(context.input.runtimePolicy, toolName, nativeToolInput)
+          ) {
+            return {
+              behavior: "allow",
+              updatedInput: toolInput,
               toolUseID: callbackOptions.toolUseID,
             } satisfies PermissionResult;
           }
