@@ -99,18 +99,18 @@ export function CtStudioSettingsSection() {
       />
       <SettingsRow
         id="ct-studio-sidebar-focus-top"
-        title={gt("Pin active & unread threads to top")}
+        title={gt("Show active & unread threads at top")}
         description={
           <T>
-            Keep threads needing attention, unread completions, and running tasks at the very top of
-            the sidebar across all projects.
+            Mirror threads needing attention, unread completions, and running tasks at the top of
+            the sidebar across all projects while keeping them in their original lists.
           </T>
         }
         control={
           <Switch
             checked={sidebarFocusTopEnabled}
             onCheckedChange={(checked) => writeSidebarFocusTopEnabled(Boolean(checked))}
-            aria-label={gt("Pin active & unread threads to top")}
+            aria-label={gt("Show active & unread threads at top")}
           />
         }
       />

@@ -20,7 +20,7 @@ import type {
 } from "@t3tools/contracts";
 import { useGT } from "gt-react";
 import { FolderTreeIcon, ListIcon } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import type { DraftId } from "../../../composerDraftStore";
 import { useStableCallback } from "../../../hooks/useStableCallback";
@@ -73,7 +73,6 @@ function threadKeyOf(thread: Pick<EnvironmentThreadShell, "environmentId" | "id"
 export function useSidebarThreadGrouping(input: {
   readonly projectGroups: readonly SidebarProjectSnapshot[];
   readonly searchableThreads: readonly EnvironmentThreadShell[];
-  readonly activeThreads: readonly EnvironmentThreadShell[];
   readonly routeRowThreadKey: string | null;
   readonly serverConfigs: ReadonlyMap<EnvironmentId, unknown>;
   readonly isMobile: boolean;
@@ -114,31 +113,6 @@ export function useSidebarThreadGrouping(input: {
           projectRef.projectId === thread.projectId,
       ),
     ) ?? null;
-
-  // Auto-expand a collapsed group when route navigation lands on a thread inside it.
-  // Tracks the previous route key so manually collapsing the active group stays collapsed.
-  const previousRouteThreadKeyRef = useRef<string | null>(input.routeRowThreadKey);
-  const autoExpandTarget = (() => {
-    if (input.routeRowThreadKey === null) return null;
-    const thread = input.activeThreads.find(
-      (candidate) => threadKeyOf(candidate) === input.routeRowThreadKey,
-    );
-    if (!thread) return null;
-    const groupName = readThreadGroupName(thread);
-    if (groupName === null) return null;
-    const projectGroup = resolveProjectGroupForThread(thread);
-    if (!projectGroup) return null;
-    const expansionKey = threadGroupExpansionKey(projectGroup.projectKey, groupName);
-    return threadGroupExpandedByKey[expansionKey] === false ? expansionKey : null;
-  })();
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- expands a collapsed group in the external UI store when navigation lands inside it
-  useEffect(() => {
-    if (previousRouteThreadKeyRef.current === input.routeRowThreadKey) return;
-    previousRouteThreadKeyRef.current = input.routeRowThreadKey;
-    if (autoExpandTarget !== null) {
-      useUiStateStore.getState().setThreadGroupExpanded(autoExpandTarget, true);
-    }
-  }, [autoExpandTarget, input.routeRowThreadKey]);
 
   const collectProjectGroupNames = (projectGroup: SidebarProjectSnapshot): string[] => {
     const memberKeys = new Set(
@@ -193,7 +167,6 @@ export function useSidebarThreadGrouping(input: {
   const startThreadInThreadGroup = useStableCallback(
     (projectGroup: SidebarProjectSnapshot, groupName: string) => {
       if (input.isMobile) input.setOpenMobile(false);
-      setThreadGroupExpanded(threadGroupExpansionKey(projectGroup.projectKey, groupName), true);
       void input
         .handleNewThread(scopeProjectRef(projectGroup.environmentId, projectGroup.id))
         .then((opened) => {

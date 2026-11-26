@@ -605,6 +605,7 @@ type SidebarThreadRowProps = {
   // "folder" is a one-line row inside a boring sidebar project folder;
   // "folder-multiline" adds the card's environment and PR line under it.
   variant: "card" | "slim" | "folder" | "folder-multiline";
+  sidebarRowId?: string | undefined;
   navigationParent?: string | undefined;
   variantAction: SidebarSweepAction;
   settlementSupported: boolean;
@@ -729,6 +730,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   } = props;
   const threadRef = scopeThreadRef(thread.environmentId, thread.id);
   const threadKey = scopedThreadKey(threadRef);
+  const sidebarRowId = props.sidebarRowId ?? threadKey;
+  const isMirrorRow = props.sidebarRowId !== undefined;
   const canOperateThread = useEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope);
   const canTriageThread = !useEnvironmentScopeDenied(
     thread.environmentId,
@@ -1329,7 +1332,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     const inFolder = variant === "folder" || multiline;
     return (
       <li
-        data-thread-item={threadKey}
+        data-thread-item={isMirrorRow ? undefined : threadKey}
         {...sortableRootProps}
         {...(fileDropHandlers ?? {})}
         className={cn(
@@ -1345,7 +1348,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 ref={rowRef}
                 role="button"
                 tabIndex={0}
-                data-sidebar-row={threadKey}
+                data-sidebar-row={sidebarRowId}
                 data-sidebar-parent={props.navigationParent}
                 aria-label={accessibility.label}
                 aria-current={accessibility.current}
@@ -1540,7 +1543,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   return (
     <li
-      data-thread-item={threadKey}
+      data-thread-item={isMirrorRow ? undefined : threadKey}
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
       // The hints are the rendered heights inside py-0.5. Revealing the open thread measures rows
@@ -1558,7 +1561,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               ref={rowRef}
               role="button"
               tabIndex={0}
-              data-sidebar-row={threadKey}
+              data-sidebar-row={sidebarRowId}
               data-sidebar-parent={props.navigationParent}
               aria-label={accessibility.label}
               aria-current={accessibility.current}

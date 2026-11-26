@@ -528,25 +528,15 @@ function useSidebarThreads(input: {
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
-  const {
-    pinnedThreads: rawPinnedThreads,
-    activeThreads: rawActiveThreads,
-    workingThreads,
-    snoozedThreads,
-    settledThreads,
-  } = partition;
-  const focusPartition = useSidebarFocusPartition({
+  const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
+    partition;
+  const { focusThreads } = useSidebarFocusPartition({
     enabled: focusTopEnabled,
-    pinnedThreads: rawPinnedThreads,
-    activeThreads: rawActiveThreads,
+    pinnedThreads,
+    activeThreads,
     routeRowThreadKey,
   });
-  const focusThreads = focusPartition.focusThreads;
-  const pinnedThreads = focusPartition.remainingPinnedThreads;
-  const activeThreads = focusPartition.remainingActiveThreads;
-  const visibleFocusThreads = focusShelfExpanded
-    ? focusThreads
-    : routeThreadOnly(focusThreads, routeRowThreadKey);
+  const visibleFocusThreads = focusShelfExpanded ? focusThreads : EMPTY_THREADS;
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
@@ -600,7 +590,6 @@ function useSidebarThreads(input: {
           };
         });
   const orderedThreads = [
-    ...visibleFocusThreads,
     ...pinnedThreads,
     ...(projectFolders === null
       ? activeThreads
@@ -611,8 +600,8 @@ function useSidebarThreads(input: {
   ];
   const sectionByThreadKey = new Map<string, SidebarSection>();
   for (const [list, section] of [
-    [rawPinnedThreads, "pinned"],
-    [rawActiveThreads, "active"],
+    [pinnedThreads, "pinned"],
+    [activeThreads, "active"],
     [workingThreads, "working"],
     [snoozedThreads, "snoozed"],
     [settledThreads, "settled"],
@@ -621,8 +610,6 @@ function useSidebarThreads(input: {
   }
   return {
     ...partition,
-    pinnedThreads,
-    activeThreads,
     focusThreads,
     visibleFocusThreads,
     focusShelfExpanded,
@@ -630,7 +617,6 @@ function useSidebarThreads(input: {
     threads,
     workingShelfEnabled,
     searchableThreads: [
-      ...focusThreads,
       ...pinnedThreads,
       ...activeThreads,
       ...workingThreads,
@@ -2025,7 +2011,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const threadGrouping = useSidebarThreadGrouping({
     projectGroups,
     searchableThreads,
-    activeThreads,
     routeRowThreadKey,
     serverConfigs,
     isMobile,
@@ -2077,8 +2062,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     // Boring mode keeps a pinned open project or one the user filtered to, so it can start a thread.
     if (
       !hasProjectFolders &&
-      focusThreads.length +
-        pinnedThreads.length +
+      pinnedThreads.length +
         activeThreads.length +
         workingThreads.length +
         snoozedThreads.length +
@@ -3568,8 +3552,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           {!isSearchingThreads &&
           !hasProjectFolders &&
           visibleDraftSessionCount === 0 &&
-          focusThreads.length +
-            pinnedThreads.length +
+          pinnedThreads.length +
             activeThreads.length +
             workingThreads.length +
             snoozedThreads.length ===
@@ -3658,6 +3641,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         // The tree row of the project folder this row sits in.
                         folderRow?: string,
                         options?: {
+                          readonly mirrorKeyPrefix?: string;
                           readonly disableSortable?: boolean;
                           readonly navigationParent?: string;
                         },
@@ -3665,6 +3649,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
                         );
+                        const isMirror = options?.mirrorKeyPrefix !== undefined;
+                        const rowInstanceKey = isMirror
+                          ? `${options.mirrorKeyPrefix}:${threadKey}`
+                          : threadKey;
                         const isCard =
                           section === "active" || section === "pinned" || section === "working";
                         const rowVariant =
@@ -3677,8 +3665,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               : "slim";
                         return (
                           <SortableThreadRow
-                            key={threadKey}
-                            sortableId={threadKey}
+                            key={rowInstanceKey}
+                            sortableId={rowInstanceKey}
+                            sidebarRowId={isMirror ? rowInstanceKey : undefined}
                             contextDrag={
                               isContextDrag &&
                               !(
@@ -3688,6 +3677,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               )
                             }
                             sortableDisabled={
+                              isMirror ||
                               options?.disableSortable === true ||
                               renamingThreadKey === threadKey ||
                               !draggableThreadKeys.has(threadKey) ||
@@ -3716,15 +3706,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             pinningSupported={serverConfigs.has(thread.environmentId)}
                             isPinned={thread.pinnedAt != null}
                             dropVerb={
-                              dragState?.activeKey === threadKey
+                              !isMirror && dragState?.activeKey === threadKey
                                 ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
                                 : null
                             }
                             dragOverPinned={
-                              dragState?.activeKey === threadKey && dragTargetSection === "pinned"
+                              !isMirror &&
+                              dragState?.activeKey === threadKey &&
+                              dragTargetSection === "pinned"
                             }
                             sweepAction={
-                              actionSweep?.keys.has(threadKey) ? actionSweep.action : null
+                              !isMirror && actionSweep?.keys.has(threadKey)
+                                ? actionSweep.action
+                                : null
                             }
                             snoozeWakeLabelText={
                               section === "snoozed" && thread.snoozedUntil != null
@@ -3738,12 +3732,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             wokeAt={threadWokeAt(thread, { now: snoozeNow })}
                             isActive={routeRowThreadKey === threadKey}
                             revealRef={
-                              routeRowThreadKey === threadKey ? revealActiveRow : undefined
+                              !isMirror && routeRowThreadKey === threadKey
+                                ? revealActiveRow
+                                : undefined
                             }
                             isRouteThread={routeThreadKey === threadKey}
                             readOpensPullRequestsInRightPanel={readOpensPullRequestsInRightPanel}
                             jumpLabel={
-                              showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null
+                              !isMirror && showJumpHints
+                                ? (jumpLabelByKey.get(threadKey) ?? null)
+                                : null
                             }
                             environmentLabel={
                               environmentLabelById.get(thread.environmentId) ?? null
@@ -3771,8 +3769,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             onRenameTitleChange={setRenamingTitle}
                             onCommitRename={commitThreadRename}
                             onCancelRename={cancelThreadRename}
-                            isRenaming={renamingThreadKey === threadKey}
-                            renamingTitle={renamingThreadKey === threadKey ? renamingTitle : ""}
+                            isRenaming={!isMirror && renamingThreadKey === threadKey}
+                            renamingTitle={
+                              !isMirror && renamingThreadKey === threadKey ? renamingTitle : ""
+                            }
                             onContextMenu={handleThreadContextMenu}
                             onSettle={attemptSettle}
                             onActionSweepStart={startActionSweep}
@@ -3827,7 +3827,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   thread,
                                   thread.pinnedAt != null ? "pinned" : "active",
                                   undefined,
-                                  { disableSortable: true, navigationParent: "shelf:focus" },
+                                  {
+                                    mirrorKeyPrefix: "focus",
+                                    disableSortable: true,
+                                    navigationParent: "shelf:focus",
+                                  },
                                 ),
                               ),
                               <li

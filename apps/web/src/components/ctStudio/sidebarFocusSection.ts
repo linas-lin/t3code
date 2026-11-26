@@ -177,15 +177,13 @@ export function partitionSidebarFocusThreads(input: {
     readonly bucket: SidebarFocusBucket;
     readonly timestamp: number;
   }> = [];
-  const remainingPinned: EnvironmentThreadShell[] = [];
-  const remainingActive: EnvironmentThreadShell[] = [];
+  const seenKeys = new Set<string>();
 
-  const collect = (
-    list: readonly EnvironmentThreadShell[],
-    remaining: EnvironmentThreadShell[],
-  ) => {
+  const collect = (list: readonly EnvironmentThreadShell[]) => {
     for (const thread of list) {
       const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
       const naturalBucket = classifySidebarFocusBucket(thread, localLastVisitedAtById[key]);
       if (naturalBucket !== null) {
         naturalBucketByKey.set(key, naturalBucket);
@@ -198,14 +196,12 @@ export function partitionSidebarFocusThreads(input: {
           bucket: effectiveBucket,
           timestamp: focusActivityTimestamp(thread),
         });
-      } else {
-        remaining.push(thread);
       }
     }
   };
 
-  collect(pinnedThreads, remainingPinned);
-  collect(activeThreads, remainingActive);
+  collect(pinnedThreads);
+  collect(activeThreads);
 
   focusEntries.sort(
     (left, right) =>
@@ -217,16 +213,17 @@ export function partitionSidebarFocusThreads(input: {
 
   return {
     focusThreads: focusEntries.map((entry) => entry.thread),
-    remainingPinnedThreads: remainingPinned,
-    remainingActiveThreads: remainingActive,
+    remainingPinnedThreads: pinnedThreads,
+    remainingActiveThreads: activeThreads,
     naturalBucketByKey,
   };
 }
 
 /**
- * Extracts active/unread/attention threads into a top focus section while keeping
- * the currently viewed thread anchored until the user navigates away so clicking an
- * unread thread does not make it jump out from under the pointer.
+ * Mirrors active/unread/attention threads into a top focus section without removing
+ * them from their original pinned/active/grouped lists, while keeping the currently
+ * viewed thread anchored until the user navigates away so clicking an unread thread
+ * does not make it jump out from under the pointer.
  */
 export function useSidebarFocusPartition(input: {
   readonly enabled: boolean;

@@ -157,7 +157,7 @@ describe("sidebarFocusSection", () => {
     expect(classifySidebarFocusBucket(readyRead)).toBeNull();
   });
 
-  it("orders focus threads by attention > unread > working and newest activity first within each bucket", () => {
+  it("mirrors focus threads in attention > unread > working order while preserving original lists", () => {
     const workingOlder = makeThread("working-older", {
       updatedAt: "2026-11-26T08:01:00.000Z",
       runtime: {
@@ -193,10 +193,13 @@ describe("sidebarFocusSection", () => {
     });
     const activeIdle = makeThread("active-idle");
 
+    const pinnedThreads = [workingNewer, pinnedIdle];
+    const activeThreads = [workingOlder, activeIdle, unread, attention];
+
     const result = partitionSidebarFocusThreads({
       enabled: true,
-      pinnedThreads: [workingNewer, pinnedIdle],
-      activeThreads: [workingOlder, activeIdle, unread, attention],
+      pinnedThreads,
+      activeThreads,
       localLastVisitedAtById: {},
     });
 
@@ -206,11 +209,40 @@ describe("sidebarFocusSection", () => {
       "working-newer",
       "working-older",
     ]);
-    expect(result.remainingPinnedThreads.map((t) => t.id)).toEqual(["pinned-idle"]);
-    expect(result.remainingActiveThreads.map((t) => t.id)).toEqual(["active-idle"]);
+    expect(result.remainingPinnedThreads).toBe(pinnedThreads);
+    expect(result.remainingActiveThreads).toBe(activeThreads);
+    expect(result.remainingPinnedThreads.map((t) => t.id)).toEqual([
+      "working-newer",
+      "pinned-idle",
+    ]);
+    expect(result.remainingActiveThreads.map((t) => t.id)).toEqual([
+      "working-older",
+      "active-idle",
+      "unread",
+      "attention",
+    ]);
   });
 
-  it("keeps a sticky viewed thread in the focus section even after it becomes read", () => {
+  it("deduplicates mirrored focus threads if the same thread appears in both pinned and active", () => {
+    const sharedWorking = makeThread("shared-working", {
+      runtime: {
+        status: "running",
+        activeRunId: "r1",
+        updatedAt: "2026-11-26T08:06:00.000Z",
+      } as any,
+    });
+
+    const result = partitionSidebarFocusThreads({
+      enabled: true,
+      pinnedThreads: [sharedWorking],
+      activeThreads: [sharedWorking],
+      localLastVisitedAtById: {},
+    });
+
+    expect(result.focusThreads.map((t) => t.id)).toEqual(["shared-working"]);
+  });
+
+  it("keeps a sticky viewed thread in the focus mirror after it becomes read without removing it from active", () => {
     const justRead = makeThread("just-read", {
       lastVisitedAt: "2026-11-26T08:10:00.000Z",
       latestRun: {
@@ -221,25 +253,28 @@ describe("sidebarFocusSection", () => {
       } as any,
     });
     const otherIdle = makeThread("other-idle");
+    const activeThreads = [justRead, otherIdle];
 
     const anchored = partitionSidebarFocusThreads({
       enabled: true,
       pinnedThreads: [],
-      activeThreads: [justRead, otherIdle],
+      activeThreads,
       localLastVisitedAtById: {},
       stickyFocus: { key: "env-1:just-read", bucket: "unread" },
     });
     expect(anchored.focusThreads.map((t) => t.id)).toEqual(["just-read"]);
-    expect(anchored.remainingActiveThreads.map((t) => t.id)).toEqual(["other-idle"]);
+    expect(anchored.remainingActiveThreads).toBe(activeThreads);
+    expect(anchored.remainingActiveThreads.map((t) => t.id)).toEqual(["just-read", "other-idle"]);
 
     const released = partitionSidebarFocusThreads({
       enabled: true,
       pinnedThreads: [],
-      activeThreads: [justRead, otherIdle],
+      activeThreads,
       localLastVisitedAtById: {},
       stickyFocus: null,
     });
     expect(released.focusThreads).toEqual([]);
+    expect(released.remainingActiveThreads).toBe(activeThreads);
     expect(released.remainingActiveThreads.map((t) => t.id)).toEqual(["just-read", "other-idle"]);
   });
 
@@ -252,15 +287,18 @@ describe("sidebarFocusSection", () => {
       } as any,
     });
     const pinned = makeThread("pinned", { pinnedAt: "2026-11-26T07:00:00.000Z" });
+    const pinnedThreads = [pinned];
+    const activeThreads = [working];
 
     const result = partitionSidebarFocusThreads({
       enabled: false,
-      pinnedThreads: [pinned],
-      activeThreads: [working],
+      pinnedThreads,
+      activeThreads,
       localLastVisitedAtById: {},
     });
     expect(result.focusThreads).toEqual([]);
-    expect(result.remainingPinnedThreads).toBe(result.remainingPinnedThreads);
+    expect(result.remainingPinnedThreads).toBe(pinnedThreads);
+    expect(result.remainingActiveThreads).toBe(activeThreads);
     expect(result.remainingPinnedThreads.map((t) => t.id)).toEqual(["pinned"]);
     expect(result.remainingActiveThreads.map((t) => t.id)).toEqual(["working"]);
   });
