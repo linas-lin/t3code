@@ -290,6 +290,12 @@ import {
   SidebarSectionHeader,
   SidebarSectionPlaceholder,
 } from "./sidebar/SidebarListMarkers";
+import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
+import {
+  useSidebarFocusExpanded,
+  useSidebarFocusPartition,
+  useSidebarFocusTopEnabled,
+} from "./ctStudio/sidebarFocusSection";
 import {
   hasGroupedThreadsInSingleProjectScope,
   parseThreadGroupDropId,
@@ -469,11 +475,12 @@ function useSidebarThreads(input: {
     keepEmptyFolders: keepEmpty,
   } = input;
   const shelfRouteThreadKey = routeRowThreadKey === departingThreadKey ? null : routeRowThreadKey;
+  const focusTopEnabled = useSidebarFocusTopEnabled();
+  const [focusShelfExpanded, toggleFocusShelf] = useSidebarFocusExpanded();
   // Folders and project thread groups already separate the work, so they have no Working shelf.
+  const workingShelfSettingEnabled = useClientSettings((s) => s.sidebarWorkingShelfEnabled);
   const workingShelfEnabled =
-    useClientSettings((s) => s.sidebarWorkingShelfEnabled) &&
-    folderGroups === null &&
-    !disableWorkingShelf;
+    !focusTopEnabled && workingShelfSettingEnabled && folderGroups === null && !disableWorkingShelf;
   const inboxReturnsVersion = useSyncExternalStore(
     inboxReturns.subscribe,
     inboxReturns.getSnapshot,
@@ -521,8 +528,25 @@ function useSidebarThreads(input: {
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
-  const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
-    partition;
+  const {
+    pinnedThreads: rawPinnedThreads,
+    activeThreads: rawActiveThreads,
+    workingThreads,
+    snoozedThreads,
+    settledThreads,
+  } = partition;
+  const focusPartition = useSidebarFocusPartition({
+    enabled: focusTopEnabled,
+    pinnedThreads: rawPinnedThreads,
+    activeThreads: rawActiveThreads,
+    routeRowThreadKey,
+  });
+  const focusThreads = focusPartition.focusThreads;
+  const pinnedThreads = focusPartition.remainingPinnedThreads;
+  const activeThreads = focusPartition.remainingActiveThreads;
+  const visibleFocusThreads = focusShelfExpanded
+    ? focusThreads
+    : routeThreadOnly(focusThreads, routeRowThreadKey);
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
@@ -576,6 +600,7 @@ function useSidebarThreads(input: {
           };
         });
   const orderedThreads = [
+    ...visibleFocusThreads,
     ...pinnedThreads,
     ...(projectFolders === null
       ? activeThreads
@@ -586,8 +611,8 @@ function useSidebarThreads(input: {
   ];
   const sectionByThreadKey = new Map<string, SidebarSection>();
   for (const [list, section] of [
-    [pinnedThreads, "pinned"],
-    [activeThreads, "active"],
+    [rawPinnedThreads, "pinned"],
+    [rawActiveThreads, "active"],
     [workingThreads, "working"],
     [snoozedThreads, "snoozed"],
     [settledThreads, "settled"],
@@ -596,9 +621,16 @@ function useSidebarThreads(input: {
   }
   return {
     ...partition,
+    pinnedThreads,
+    activeThreads,
+    focusThreads,
+    visibleFocusThreads,
+    focusShelfExpanded,
+    toggleFocusShelf,
     threads,
     workingShelfEnabled,
     searchableThreads: [
+      ...focusThreads,
       ...pinnedThreads,
       ...activeThreads,
       ...workingThreads,
@@ -1354,6 +1386,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
 
   const {
     workingShelfEnabled,
+    focusThreads,
+    visibleFocusThreads,
+    focusShelfExpanded,
+    toggleFocusShelf,
     pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
@@ -2041,7 +2077,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     // Boring mode keeps a pinned open project or one the user filtered to, so it can start a thread.
     if (
       !hasProjectFolders &&
-      pinnedThreads.length +
+      focusThreads.length +
+        pinnedThreads.length +
         activeThreads.length +
         workingThreads.length +
         snoozedThreads.length +
@@ -2111,9 +2148,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     dragState === null && sidebarListItems.length + visibleDraftSessionCount > 0;
   // Cache on both fields so layout-key changes trigger the effect even when animate is unchanged.
   const listMotionPass = { layoutKey: listMotionLayoutKey, animate: listMotionAnimate };
-  const shelfExpansionKey = [workingShelfExpanded, snoozedShelfExpanded, settledShelfExpanded].join(
-    ":",
-  );
+  const shelfExpansionKey = [
+    focusShelfExpanded,
+    workingShelfExpanded,
+    snoozedShelfExpanded,
+    settledShelfExpanded,
+  ].join(":");
   const previousShelfExpansionKeyRef = useRef(shelfExpansionKey);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- records moved rows and updates list motion after each layout-affecting commit
   useLayoutEffect(() => {
@@ -3528,7 +3568,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           {!isSearchingThreads &&
           !hasProjectFolders &&
           visibleDraftSessionCount === 0 &&
-          pinnedThreads.length +
+          focusThreads.length +
+            pinnedThreads.length +
             activeThreads.length +
             workingThreads.length +
             snoozedThreads.length ===
@@ -3616,6 +3657,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         section: SidebarSection,
                         // The tree row of the project folder this row sits in.
                         folderRow?: string,
+                        options?: {
+                          readonly disableSortable?: boolean;
+                          readonly navigationParent?: string;
+                        },
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -3643,6 +3688,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               )
                             }
                             sortableDisabled={
+                              options?.disableSortable === true ||
                               renamingThreadKey === threadKey ||
                               !draggableThreadKeys.has(threadKey) ||
                               optimisticDrop !== null
@@ -3650,6 +3696,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             thread={thread}
                             variant={rowVariant}
                             navigationParent={
+                              options?.navigationParent ??
                               folderRow ??
                               (section === "working" ||
                               section === "snoozed" ||
@@ -3752,6 +3799,44 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           onNavigateToDraft={navigateToDraft}
                           onDraftContextMenu={handleDraftContextMenu}
                         />,
+                        ...(focusThreads.length > 0
+                          ? [
+                              <li
+                                key="ct-focus-header"
+                                data-thread-selection-safe
+                                data-testid="sidebar-focus-header"
+                                className="relative mx-0.5 h-8 list-none"
+                              >
+                                <CollapsibleSectionHeader
+                                  data-sidebar-row="shelf:focus"
+                                  onClick={toggleFocusShelf}
+                                  expanded={focusShelfExpanded}
+                                  tone="emphasized"
+                                  data-testid="sidebar-focus-shelf-toggle"
+                                  accessory={
+                                    <span className="font-normal tabular-nums">
+                                      {focusThreads.length}
+                                    </span>
+                                  }
+                                >
+                                  {gt("Active & Unread", { $context: "sidebar section" })}
+                                </CollapsibleSectionHeader>
+                              </li>,
+                              ...visibleFocusThreads.map((thread) =>
+                                renderThreadRow(
+                                  thread,
+                                  thread.pinnedAt != null ? "pinned" : "active",
+                                  undefined,
+                                  { disableSortable: true, navigationParent: "shelf:focus" },
+                                ),
+                              ),
+                              <li
+                                key="ct-focus-divider"
+                                aria-hidden
+                                className="mx-2 my-1 h-px list-none bg-sidebar-border/50"
+                              />,
+                            ]
+                          : []),
                       ];
                       const groupDragInfo = {
                         activeThread: draggedThread,
@@ -3792,6 +3877,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 onToggle={toggleProjectFolder}
                                 onNewThread={startThreadInProjectFolder}
                                 onContextMenu={handleProjectFolderContextMenu}
+                                trailingAction={threadGrouping.renderProjectGroupingToggle({
+                                  projectGroup: folder.group,
+                                  threads: folder.collapsed ? folder.hiddenThreads : folder.threads,
+                                  collapsed: folder.collapsed,
+                                  rowId: folderRowId,
+                                })}
                               />,
                             );
                             const groupedNodes = folder.collapsed

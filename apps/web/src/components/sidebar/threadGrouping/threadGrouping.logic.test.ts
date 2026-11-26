@@ -5,11 +5,15 @@ import {
   extractSuggestedGroupFromThread,
   groupProjectActiveThreads,
   hasGroupedThreadsInSingleProjectScope,
+  hasProjectGroupedThreads,
   parseThreadGroupDropId,
+  readFlatProjectsFromStorage,
   readThreadGroupName,
   threadGroupDropId,
   threadGroupExpansionKey,
   threadUngroupedDropId,
+  toggleFlatProjectKey,
+  writeFlatProjectsToStorage,
 } from "./threadGrouping.logic";
 
 type MockThread = {
@@ -157,5 +161,31 @@ describe("threadGrouping.logic", () => {
         issues: [],
       }),
     ).toBeNull();
+  });
+
+  it("detects grouped threads in a project and persists per-project flat view toggles", () => {
+    expect(hasProjectGroupedThreads([{ tags: ["private"] }])).toBe(false);
+    expect(hasProjectGroupedThreads([{ tags: ["group:ct-code"] }])).toBe(true);
+
+    const store = new Map<string, string>();
+    const fakeStorage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+    };
+
+    const initial = readFlatProjectsFromStorage(fakeStorage);
+    expect(initial).toEqual({});
+
+    const enabled = toggleFlatProjectKey(initial, "proj-ct-studio");
+    expect(enabled).toEqual({ "proj-ct-studio": true });
+    writeFlatProjectsToStorage(fakeStorage, enabled);
+    expect(readFlatProjectsFromStorage(fakeStorage)).toEqual({ "proj-ct-studio": true });
+
+    const disabled = toggleFlatProjectKey(enabled, "proj-ct-studio");
+    expect(disabled).toEqual({});
+    writeFlatProjectsToStorage(fakeStorage, disabled);
+    expect(readFlatProjectsFromStorage(fakeStorage)).toEqual({});
   });
 });

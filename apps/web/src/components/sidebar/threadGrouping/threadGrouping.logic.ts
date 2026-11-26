@@ -11,6 +11,7 @@ const TICKET_KEY_PATTERN = /\b([A-Z][A-Z0-9]+-\d+)\b/g;
 const GROUP_DROP_PREFIX = "sidebar-group-drop:";
 const UNGROUPED_DROP_PREFIX = "sidebar-ungrouped-drop:";
 const KEY_SEPARATOR = "::";
+const FLAT_PROJECTS_STORAGE_KEY = "t3code:sidebar-project-flat-threads:v1";
 
 export const THREAD_GROUP_LIST_CLASS = [
   "[&>li:has([data-sidebar-parent^='group:top:'])]:relative",
@@ -166,6 +167,60 @@ export function groupProjectActiveThreads<
     ungrouped,
     groupNames: orderedGroupNames,
   };
+}
+
+export function hasProjectGroupedThreads(
+  threads: ReadonlyArray<{
+    readonly tags?: ReadonlyArray<string> | undefined;
+    readonly source?: { readonly tags?: ReadonlyArray<string> | undefined } | undefined;
+  }>,
+): boolean {
+  return threads.some((thread) => readThreadGroupName(thread) !== null);
+}
+
+export function readFlatProjectsFromStorage(
+  storage: Pick<Storage, "getItem"> | null | undefined,
+): Readonly<Record<string, true>> {
+  if (!storage) return {};
+  try {
+    const raw = storage.getItem(FLAT_PROJECTS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return {};
+    const next: Record<string, true> = {};
+    for (const item of parsed) {
+      if (typeof item === "string" && item.length > 0) {
+        next[item] = true;
+      }
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+export function writeFlatProjectsToStorage(
+  storage: Pick<Storage, "setItem"> | null | undefined,
+  flatByProjectKey: Readonly<Record<string, true>>,
+): void {
+  if (!storage) return;
+  try {
+    storage.setItem(FLAT_PROJECTS_STORAGE_KEY, JSON.stringify(Object.keys(flatByProjectKey)));
+  } catch {
+    // Ignore storage quota or privacy-mode failures.
+  }
+}
+
+export function toggleFlatProjectKey(
+  flatByProjectKey: Readonly<Record<string, true>>,
+  projectKey: string,
+): Readonly<Record<string, true>> {
+  if (flatByProjectKey[projectKey]) {
+    const next = { ...flatByProjectKey };
+    delete next[projectKey];
+    return next;
+  }
+  return { ...flatByProjectKey, [projectKey]: true };
 }
 
 /**

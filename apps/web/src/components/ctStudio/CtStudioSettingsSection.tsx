@@ -4,9 +4,11 @@ import { useState } from "react";
 
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Switch } from "../ui/switch";
 import { SettingResetButton, SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { DEFAULT_CT_STUDIO_URL, normalizeCtStudioUrl } from "./ctStudioConfig";
 import { useCtStudioStore } from "./ctStudioStore";
+import { useSidebarFocusTopEnabled, writeSidebarFocusTopEnabled } from "./sidebarFocusSection";
 
 export function CtStudioSettingsSection() {
   const gt = useGT();
@@ -14,6 +16,7 @@ export function CtStudioSettingsSection() {
   const connected = useCtStudioStore((state) => state.connected);
   const baseUrl = useCtStudioStore((state) => state.baseUrl);
   const setBaseUrl = useCtStudioStore((state) => state.setBaseUrl);
+  const sidebarFocusTopEnabled = useSidebarFocusTopEnabled();
 
   const [urlDraft, setUrlDraft] = useState(baseUrl);
   const [urlError, setUrlError] = useState<string | null>(null);
@@ -92,6 +95,23 @@ export function CtStudioSettingsSection() {
               </Button>
             ) : null}
           </div>
+        }
+      />
+      <SettingsRow
+        id="ct-studio-sidebar-focus-top"
+        title={gt("Pin active & unread threads to top")}
+        description={
+          <T>
+            Keep threads needing attention, unread completions, and running tasks at the very top of
+            the sidebar across all projects.
+          </T>
+        }
+        control={
+          <Switch
+            checked={sidebarFocusTopEnabled}
+            onCheckedChange={(checked) => writeSidebarFocusTopEnabled(Boolean(checked))}
+            aria-label={gt("Pin active & unread threads to top")}
+          />
         }
       />
     </SettingsSection>

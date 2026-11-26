@@ -19,27 +19,35 @@ import type {
   ScopedThreadRef,
 } from "@t3tools/contracts";
 import { useGT } from "gt-react";
+import { FolderTreeIcon, ListIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { DraftId } from "../../../composerDraftStore";
 import { useStableCallback } from "../../../hooks/useStableCallback";
 import { m } from "../../../i18n/messages";
+import { cn } from "../../../lib/utils";
 import { readLocalApi } from "../../../localApi";
 import type { SidebarProjectSnapshot } from "../../../sidebarProjectGrouping";
 import { useUiStateStore } from "../../../uiStateStore";
 import type { SidebarSection } from "../../Sidebar.logic";
+import { Button } from "../../ui/button";
 import { stackedThreadToast, toastManager } from "../../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { useDraftThreadGroupStore } from "./draftThreadGroupStore";
 import { SidebarThreadGroupHeader, SidebarUngroupedDropZone } from "./SidebarThreadGroupHeader";
 import { ThreadGroupNameDialog } from "./ThreadGroupNameDialog";
 import {
   extractSuggestedGroupFromThread,
   groupProjectActiveThreads,
+  hasProjectGroupedThreads,
   parseThreadGroupDropId,
+  readFlatProjectsFromStorage,
   readThreadGroupName,
   readThreadTags,
   threadGroupExpansionKey,
   threadUngroupedDropId,
+  toggleFlatProjectKey,
+  writeFlatProjectsToStorage,
   type SidebarThreadGroupBucket,
 } from "./threadGrouping.logic";
 
@@ -84,6 +92,17 @@ export function useSidebarThreadGrouping(input: {
   const setThreadGroupExpanded = useUiStateStore((store) => store.setThreadGroupExpanded);
   const toggleThreadGroupExpanded = useUiStateStore((store) => store.toggleThreadGroupExpanded);
   const [threadGroupDialog, setThreadGroupDialog] = useState<ThreadGroupDialogState | null>(null);
+  const [flatProjectKeys, setFlatProjectKeys] = useState<Readonly<Record<string, true>>>(() =>
+    readFlatProjectsFromStorage(typeof window !== "undefined" ? window.localStorage : null),
+  );
+
+  const toggleProjectFlatMode = useStableCallback((projectKey: string) => {
+    setFlatProjectKeys((current) => {
+      const next = toggleFlatProjectKey(current, projectKey);
+      writeFlatProjectsToStorage(typeof window !== "undefined" ? window.localStorage : null, next);
+      return next;
+    });
+  });
 
   const resolveProjectGroupForThread = (
     thread: Pick<EnvironmentThreadShell, "environmentId" | "projectId">,
@@ -398,6 +417,7 @@ export function useSidebarThreadGrouping(input: {
       parentRow?: string,
     ) => ReactNode;
   }): ReactNode[] | null => {
+    if (flatProjectKeys[options.projectGroup.projectKey]) return null;
     const grouped = groupProjectActiveThreads({
       projectKey: options.projectGroup.projectKey,
       nested: options.nested,
@@ -461,11 +481,57 @@ export function useSidebarThreadGrouping(input: {
     return nodes;
   };
 
-  const expansionLayoutKey = Object.entries(threadGroupExpandedByKey)
-    .filter(([, expanded]) => expanded === false)
-    .map(([key]) => key)
-    .sort()
-    .join(",");
+  const renderProjectGroupingToggle = (options: {
+    readonly projectGroup: SidebarProjectSnapshot;
+    readonly threads: readonly EnvironmentThreadShell[];
+    readonly collapsed: boolean;
+    readonly rowId: string;
+  }): ReactNode => {
+    if (!hasProjectGroupedThreads(options.threads)) return null;
+    const isFlat = Boolean(flatProjectKeys[options.projectGroup.projectKey]);
+    const label = isFlat ? gt("Group threads") : gt("Sort by recent (no groups)");
+    return (
+      <span
+        className={cn(
+          "flex items-center transition-opacity",
+          isFlat && !options.collapsed
+            ? "opacity-75 hover:opacity-100 focus-within:opacity-100"
+            : "opacity-0 focus-within:opacity-100 group-hover/project-folder:opacity-100 pointer-coarse:opacity-100",
+        )}
+      >
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                data-sidebar-action-for={options.rowId}
+                size="icon-xs"
+                variant={isFlat ? "ghost" : "ghost-muted"}
+                aria-label={label}
+                aria-pressed={isFlat}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggleProjectFlatMode(options.projectGroup.projectKey);
+                }}
+              />
+            }
+          >
+            {isFlat ? <FolderTreeIcon aria-hidden /> : <ListIcon aria-hidden />}
+          </TooltipTrigger>
+          <TooltipPopup>{label}</TooltipPopup>
+        </Tooltip>
+      </span>
+    );
+  };
+
+  const expansionLayoutKey = [
+    ...Object.entries(threadGroupExpandedByKey)
+      .filter(([, expanded]) => expanded === false)
+      .map(([key]) => key)
+      .sort(),
+    ...Object.keys(flatProjectKeys)
+      .sort()
+      .map((key) => `flat:${key}`),
+  ].join(",");
 
   const dialogElement = (
     <ThreadGroupNameDialog
@@ -514,6 +580,7 @@ export function useSidebarThreadGrouping(input: {
     isValidGroupDrop,
     handleGroupDropEnd,
     renderProjectGroupedThreads,
+    renderProjectGroupingToggle,
     dialogElement,
   };
 }
