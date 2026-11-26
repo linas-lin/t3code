@@ -307,6 +307,13 @@ export type CtStudioOutboundMessage =
   | {
       readonly type: "t3-ct-studio:presentation";
       readonly mode: "page" | "modal" | "hidden";
+      readonly headerInset?:
+        | {
+            readonly left: number;
+            readonly right: number;
+            readonly height?: number | undefined;
+          }
+        | undefined;
     };
 
 const DRIVER_LABELS: Record<string, string> = {

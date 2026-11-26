@@ -21,6 +21,7 @@ import { memo, useEffect, useEffectEvent, useRef, useState } from "react";
 import { useDiffPanelStore } from "~/diffPanelStore";
 import { editorLabelForPlatform } from "~/editorLabels";
 import { useOpenInPreferredEditor, usePreferredEditor } from "~/editorPreferences";
+import { isElectron } from "~/env";
 import { useTheme } from "~/hooks/useTheme";
 import { m } from "~/i18n/messages";
 import { cn, newMessageId, newProjectId, newThreadId } from "~/lib/utils";
@@ -34,7 +35,9 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { useOrchestrationCommand } from "~/state/use-orchestration-command";
 import { vcsEnvironment } from "~/state/vcs";
 import { buildThreadRouteParams } from "~/threadRoutes";
+import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { useNavigateToMainApp } from "../sidebar/mainAppLocation";
+import { useSidebar } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   buildCtStudioHostCatalog,
@@ -116,6 +119,7 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
 
   const navigate = useNavigate();
   const navigateToMainApp = useNavigateToMainApp();
+  const { state: sidebarState, isMobile: isSidebarMobile } = useSidebar();
   const { resolvedTheme } = useTheme();
   const primaryEnvironmentId = useAtomValue(primaryEnvironmentIdAtom);
   const primaryServerConfig = useAtomValue(primaryServerConfigAtom);
@@ -146,8 +150,10 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
   const createWorktree = useAtomCommand(vcsEnvironment.createWorktree, { reportFailure: false });
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const headerInsetProbeRef = useRef<HTMLDivElement>(null);
   const lastCatalogDigestRef = useRef<string | null>(null);
   const lastThreadsDigestRef = useRef<string | null>(null);
+  const lastPresentationDigestRef = useRef<string | null>(null);
   const prevPathnameRef = useRef(pathname);
 
   const shouldRender = mounted || isVisible;
@@ -790,14 +796,61 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
     }
   }, [pathname, closeModal]);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- notifies the embedded iframe of page/modal/hidden presentation mode so Escape closes the modal directly
+  const measureHeaderInset = useEffectEvent(() => {
+    if (presentationMode !== "page") {
+      return { left: 0, right: 0 };
+    }
+    const probe = headerInsetProbeRef.current;
+    if (!probe) {
+      return { left: 0, right: 0 };
+    }
+    const computed = window.getComputedStyle(probe);
+    const left = Math.max(0, Math.round(Number.parseFloat(computed.paddingLeft) || 0));
+    const right = Math.max(0, Math.round(Number.parseFloat(computed.paddingRight) || 0));
+    const rawHeight = Math.round(Number.parseFloat(computed.height) || 0);
+    return rawHeight > 0 ? { left, right, height: rawHeight } : { left, right };
+  });
+
+  const syncPresentationToFrame = useEffectEvent((force = false) => {
+    if (!shouldRender || !connected) return;
+    const headerInset = measureHeaderInset();
+    const digest = `${presentationMode}:${headerInset.left}:${headerInset.right}:${headerInset.height ?? ""}`;
+    if (!force && digest === lastPresentationDigestRef.current) return;
+    if (
+      postToCtStudioFrame(iframeRef.current, baseUrl, {
+        type: "t3-ct-studio:presentation",
+        mode: presentationMode,
+        headerInset,
+      })
+    ) {
+      lastPresentationDigestRef.current = digest;
+    }
+  });
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- notifies the embedded iframe of presentation mode and host titlebar safe-area insets (collapsed sidebar, macOS traffic lights, Windows WCO)
   useEffect(() => {
     if (!shouldRender || !connected) return;
-    postToCtStudioFrame(iframeRef.current, baseUrl, {
-      type: "t3-ct-studio:presentation",
-      mode: presentationMode,
+    syncPresentationToFrame();
+    if (presentationMode !== "page") return;
+
+    const onResize = () => syncPresentationToFrame();
+    window.addEventListener("resize", onResize);
+
+    const wrapper = headerInsetProbeRef.current?.closest('[data-slot="sidebar-wrapper"]');
+    const observer =
+      wrapper && typeof MutationObserver !== "undefined"
+        ? new MutationObserver(() => syncPresentationToFrame())
+        : null;
+    observer?.observe(wrapper!, {
+      attributes: true,
+      attributeFilter: ["data-sidebar-state", "data-sidebar-drag-state", "style"],
     });
-  }, [shouldRender, connected, baseUrl, presentationMode]);
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      observer?.disconnect();
+    };
+  }, [shouldRender, connected, baseUrl, presentationMode, sidebarState, isSidebarMobile]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- binds Escape shortcut to close the CT Studio quick-view modal
   useEffect(() => {
@@ -857,6 +910,8 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
             type: "t3-ct-studio:threads",
             threads,
           });
+          lastPresentationDigestRef.current = null;
+          syncPresentationToFrame(true);
           break;
         }
         case "ct-studio:badge":
@@ -955,6 +1010,17 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
             : "h-full w-full flex-1",
         )}
       >
+        {isActive ? (
+          <div
+            ref={headerInsetProbeRef}
+            aria-hidden
+            className={cn(
+              "pointer-events-none invisible absolute left-0 top-0 h-[var(--workspace-topbar-height)] w-0 overflow-hidden",
+              isElectron && "wco:pr-(--workspace-native-controls-inset)",
+              COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+            )}
+          />
+        ) : null}
         {isModal ? (
           <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-muted/30 px-3">
             <div className="flex min-w-0 items-center gap-2">
