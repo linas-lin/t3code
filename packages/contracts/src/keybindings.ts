@@ -5,6 +5,7 @@ const MAX_KEYBINDING_VALUE_LENGTH = 64;
 const MAX_KEYBINDING_WHEN_LENGTH = 256;
 export const MAX_WHEN_EXPRESSION_DEPTH = 64;
 export const MAX_SCRIPT_ID_LENGTH = 24;
+const MAX_PLUGIN_ID_LENGTH = 64;
 export const MAX_KEYBINDINGS_COUNT = 256;
 
 export const THREAD_JUMP_KEYBINDING_COMMANDS = [
@@ -129,9 +130,19 @@ export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
   Schema.Literal(".run"),
 ]);
 
+export const PLUGIN_TOGGLE_COMMAND_PATTERN = Schema.TemplateLiteral([
+  Schema.Literal("plugin."),
+  Schema.NonEmptyString.check(
+    Schema.isMaxLength(MAX_PLUGIN_ID_LENGTH),
+    Schema.isPattern(/^[a-z0-9][a-z0-9-]*$/),
+  ),
+  Schema.Literal(".toggle"),
+]);
+
 export const KeybindingCommand = Schema.Union([
   Schema.Literals(STATIC_KEYBINDING_COMMANDS),
   SCRIPT_RUN_COMMAND_PATTERN,
+  PLUGIN_TOGGLE_COMMAND_PATTERN,
 ]);
 export type KeybindingCommand = typeof KeybindingCommand.Type;
 

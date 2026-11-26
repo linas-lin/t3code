@@ -1,12 +1,15 @@
+import { useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useGT } from "gt-react";
 import { RefreshCwIcon } from "lucide-react";
 import { memo, useState } from "react";
 
-import { cn, isMacPlatform } from "~/lib/utils";
+import { cn } from "~/lib/utils";
+import { primaryServerKeybindingsAtom } from "~/state/server";
 import { useNavigateToMainApp } from "../sidebar/mainAppLocation";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "../ui/sidebar";
-import { formatPluginShortcutLabel, PluginIcon } from "./pluginRuntime";
+import { shortcutLabelForPluginToggle } from "./pluginKeybindings";
+import { PluginIcon } from "./pluginRuntime";
 import { usePluginStore } from "./pluginStore";
 
 export const PluginSidebarEntries = memo(function PluginSidebarEntries() {
@@ -15,6 +18,7 @@ export const PluginSidebarEntries = memo(function PluginSidebarEntries() {
   const navigateToMainApp = useNavigateToMainApp();
   const { isMobile, setOpenMobile } = useSidebar();
   const pathname = useLocation({ select: (location) => location.pathname });
+  const serverKeybindings = useAtomValue(primaryServerKeybindingsAtom);
   const plugins = usePluginStore((state) => state.plugins);
   const runtimeById = usePluginStore((state) => state.runtimeById);
   const reloadPlugin = usePluginStore((state) => state.reloadPlugin);
@@ -32,8 +36,6 @@ export const PluginSidebarEntries = memo(function PluginSidebarEntries() {
     return null;
   }
 
-  const isMac = isMacPlatform(navigator.platform);
-
   return (
     <div
       data-slot="plugin-sidebar-entries"
@@ -47,7 +49,7 @@ export const PluginSidebarEntries = memo(function PluginSidebarEntries() {
           const sidebarMeta = plugin.manifest?.contributes?.sidebar;
           const label = sidebarMeta?.label || plugin.manifest?.name || plugin.id;
           const badgeCount = runtime?.badgeCount ?? 0;
-          const shortcutLabel = formatPluginShortcutLabel(sidebarMeta?.shortcut, isMac);
+          const shortcutLabel = shortcutLabelForPluginToggle(serverKeybindings, plugins, plugin.id);
           const hasError =
             Boolean(plugin.manifestError) ||
             runtime?.status === "error" ||

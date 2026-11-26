@@ -17,12 +17,13 @@ export const SidebarCtStudioEntry = memo(function SidebarCtStudioEntry() {
   const isActive = useLocation({
     select: (location) => location.pathname === CT_STUDIO_ROUTE_PATH,
   });
+  const legacyEnabled = useCtStudioStore((state) => state.legacyEnabled);
   const badgeCount = useCtStudioStore((state) => state.badgeCount);
   const connected = useCtStudioStore((state) => state.connected);
   const triggerReload = useCtStudioStore((state) => state.triggerReload);
   const shortcutLabel = isMacPlatform(navigator.platform) ? "⌘⇧J" : "Ctrl+⇧J";
 
-  if (!connected && !isActive) {
+  if (!legacyEnabled || (!connected && !isActive)) {
     return null;
   }
 

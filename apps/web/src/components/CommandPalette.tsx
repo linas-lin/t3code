@@ -87,6 +87,7 @@ import {
   WorkflowIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
+import { useCtStudioStore } from "./ctStudio/ctStudioStore";
 import { dispatchPreviewAction } from "./preview/previewActionBus";
 import { previewBridge } from "./preview/previewBridge";
 import {
@@ -513,6 +514,7 @@ function OpenCommandPaletteDialog(props: {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
   const pluginCommandItems = usePluginCommandItems(ITEM_ICON_CLASS);
+  const legacyCtStudioEnabled = useCtStudioStore((state) => state.legacyEnabled);
   const paletteRouteTarget = useThreadRouteTarget();
   const projects = useProjects();
   const referenceThreadRef =
@@ -1738,16 +1740,18 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  actionItems.push({
-    kind: "action",
-    value: "action:ct-studio",
-    searchTerms: ["ct-studio", "ct studio", "studio", "kanban", "jira", "inbox", "workbench"],
-    title: gt("Open CT Studio"),
-    icon: <LayoutGridIcon className={ITEM_ICON_CLASS} />,
-    run: async () => {
-      await navigate({ to: "/ct-studio", search: {} });
-    },
-  });
+  if (legacyCtStudioEnabled) {
+    actionItems.push({
+      kind: "action",
+      value: "action:ct-studio",
+      searchTerms: ["ct-studio", "ct studio", "studio", "kanban", "jira", "inbox", "workbench"],
+      title: gt("Open CT Studio"),
+      icon: <LayoutGridIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({ to: "/ct-studio", search: {} });
+      },
+    });
+  }
 
   actionItems.push(...pluginCommandItems);
 

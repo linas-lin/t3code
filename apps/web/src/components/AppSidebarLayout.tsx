@@ -40,7 +40,10 @@ import {
   usePanelNavigationSuppression,
 } from "../panelAnimations";
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
+import { useCtStudioStore } from "./ctStudio/ctStudioStore";
 import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
+import { matchesPluginShortcut } from "./plugins/pluginRuntime";
+import { usePluginStore } from "./plugins/pluginStore";
 import ThreadSidebar from "./Sidebar";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
 import { isAppModalPage } from "./sidebar/mainAppLocation";
@@ -299,12 +302,20 @@ function registerCtStudioToggleCommand(router: AnyRouter): () => void {
       capture: true,
       onKeyDown: (event) => {
         if (event.repeat || event.isComposing) return false;
-        const mod = isMacPlatform(navigator.platform)
-          ? event.metaKey && !event.ctrlKey
-          : event.ctrlKey && !event.metaKey;
+        if (!useCtStudioStore.getState().legacyEnabled) return false;
+        const isMac = isMacPlatform(navigator.platform);
+        const mod = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
         if (!mod || !event.shiftKey || event.altKey || event.key.toLowerCase() !== "j") {
           return false;
         }
+        const claimedByPlugin = usePluginStore
+          .getState()
+          .plugins.some(
+            (plugin) =>
+              plugin.enabled &&
+              matchesPluginShortcut(plugin.manifest?.contributes?.sidebar?.shortcut, event, isMac),
+          );
+        if (claimedByPlugin) return false;
         if (isCommandPaletteOpen() || isModelPickerOpen()) return false;
         event.preventDefault();
         event.stopPropagation();

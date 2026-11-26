@@ -101,6 +101,11 @@ import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsL
 import { keybindingSearchAnchorId, useSearchableSetting } from "./settingsSearch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useAtomCommand } from "../../state/use-atom-command";
+import {
+  buildEnabledPluginToggleCommands,
+  mergeKeybindingsWithPlugins,
+} from "../plugins/pluginKeybindings";
+import { usePluginStore } from "../plugins/pluginStore";
 
 function KeybindingPill({ shortcut }: { shortcut: KeybindingShortcut }) {
   const isMac = navigator.platform.toLowerCase().includes("mac");
@@ -1504,10 +1509,15 @@ function keybindingAnchorIds(rows: ReturnType<typeof buildKeybindingRows>) {
 function useKeybindingCatalog() {
   const sendShortcut = useClientSettings((settings) => settings.sendShortcut);
   const serverKeybindings = useSettingsScope().environment?.serverConfig?.keybindings;
-  const merged = mergeWithDefaultKeybindings(serverKeybindings ?? []);
+  const plugins = usePluginStore((state) => state.plugins);
+  const merged = mergeKeybindingsWithPlugins(
+    mergeWithDefaultKeybindings(serverKeybindings ?? []),
+    plugins,
+  );
+  const pluginCommands = buildEnabledPluginToggleCommands(plugins);
   const m = useMessages();
   return {
-    commandOptions: buildKeybindingCommandOptions(merged, m),
+    commandOptions: buildKeybindingCommandOptions(merged, m, pluginCommands),
     allRows: buildKeybindingRows(merged, navigator.platform, sendShortcut, m),
   };
 }

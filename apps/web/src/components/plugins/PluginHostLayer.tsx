@@ -2,14 +2,19 @@ import { useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { memo, useEffect, useRef } from "react";
 
+import { isCommandPaletteOpen } from "~/commandPaletteBus";
 import { isElectron } from "~/env";
-import { cn, isMacPlatform } from "~/lib/utils";
+import { resolveShortcutCommand } from "~/keybindings";
+import { cn } from "~/lib/utils";
+import { isModelPickerOpen } from "~/modelPickerVisibility";
 import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
+import { primaryServerKeybindingsAtom } from "~/state/server";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { useNavigateToMainApp } from "../sidebar/mainAppLocation";
 import { PluginErrorBoundary } from "./PluginErrorBoundary";
 import { useSyncPluginHostBridge } from "./pluginHostBridge";
-import { ensurePluginRuntimeGlobal, matchesPluginShortcut } from "./pluginRuntime";
+import { mergeKeybindingsWithPlugins, pluginIdFromToggleCommand } from "./pluginKeybindings";
+import { ensurePluginRuntimeGlobal } from "./pluginRuntime";
 import { usePluginStore } from "./pluginStore";
 import { PLUGIN_UI_KIT } from "./pluginUiKit";
 
@@ -42,6 +47,7 @@ export const PluginHostLayer = memo(function PluginHostLayer() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const activePluginId = extractActivePluginId(pathname);
   const primaryEnvironmentId = useAtomValue(primaryEnvironmentIdAtom);
+  const serverKeybindings = useAtomValue(primaryServerKeybindingsAtom);
 
   const plugins = usePluginStore((state) => state.plugins);
   const runtimeById = usePluginStore((state) => state.runtimeById);
@@ -68,16 +74,23 @@ export const PluginHostLayer = memo(function PluginHostLayer() {
     void usePluginStore.getState().refreshPlugins();
   }, [primaryEnvironmentId]);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens for plugin sidebar shortcuts to toggle plugin main views
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens for configured plugin toggle keybindings (falling back to manifest defaults) to toggle plugin main views
   useEffect(() => {
-    const shortcutPlugins = plugins.filter(
-      (plugin) => plugin.enabled && Boolean(plugin.manifest?.contributes?.sidebar?.shortcut),
+    const enabledPluginIds = new Set(
+      plugins.filter((plugin) => plugin.enabled).map((plugin) => plugin.id),
     );
-    if (shortcutPlugins.length === 0) return;
+    if (enabledPluginIds.size === 0) return;
 
-    const isMac = isMacPlatform(navigator.platform);
+    const effectiveKeybindings = mergeKeybindingsWithPlugins(serverKeybindings, plugins);
+    const hasPluginBindings = effectiveKeybindings.some((binding) => {
+      const targetId = pluginIdFromToggleCommand(binding.command);
+      return targetId !== null && enabledPluginIds.has(targetId);
+    });
+    if (!hasPluginBindings) return;
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing) return;
+      if (event.repeat || event.defaultPrevented || event.isComposing) return;
+      if (isCommandPaletteOpen() || isModelPickerOpen()) return;
       if (
         event.target instanceof HTMLElement &&
         event.target.closest("[data-keybinding-capture]") !== null
@@ -85,28 +98,31 @@ export const PluginHostLayer = memo(function PluginHostLayer() {
         return;
       }
 
-      for (const plugin of shortcutPlugins) {
-        const shortcut = plugin.manifest?.contributes?.sidebar?.shortcut;
-        if (!matchesPluginShortcut(shortcut, event, isMac)) continue;
-        if (!event.metaKey && !event.ctrlKey && isEditableShortcutTarget(event.target)) {
-          continue;
-        }
-        event.preventDefault();
-        if (activePluginId === plugin.id) {
-          void navigateToMainApp();
-        } else {
-          void navigate({
-            to: "/plugins/$pluginId",
-            params: { pluginId: plugin.id },
-          });
-        }
+      const command = resolveShortcutCommand(event, effectiveKeybindings, {
+        context: {
+          editableFocus: isEditableShortcutTarget(event.target),
+        },
+      });
+      const targetPluginId = pluginIdFromToggleCommand(command);
+      if (!targetPluginId || !enabledPluginIds.has(targetPluginId)) return;
+      if (!event.metaKey && !event.ctrlKey && isEditableShortcutTarget(event.target)) {
         return;
+      }
+
+      event.preventDefault();
+      if (activePluginId === targetPluginId) {
+        void navigateToMainApp();
+      } else {
+        void navigate({
+          to: "/plugins/$pluginId",
+          params: { pluginId: targetPluginId },
+        });
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [plugins, activePluginId, navigate, navigateToMainApp]);
+  }, [plugins, serverKeybindings, activePluginId, navigate, navigateToMainApp]);
 
   const keepAliveEntries = plugins.flatMap((plugin) => {
     if (!plugin.enabled) return [];

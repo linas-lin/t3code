@@ -93,6 +93,30 @@ describe("ctStudioConfig", () => {
     expect(joinCtStudioClonePath("/Users/dev/projects/")).toBe("/Users/dev/projects/ct-studio");
     expect(joinCtStudioClonePath(null)).toBe("~/projects/ct-studio");
   });
+
+  it("disables legacy iframe state and blocks mounting when legacyEnabled is turned off", () => {
+    useCtStudioStore.getState().setLegacyEnabled(true);
+    useCtStudioStore.getState().markBackgroundMounted();
+    useCtStudioStore.getState().setConnected(true);
+    useCtStudioStore.getState().setBadgeCount(4);
+    expect(useCtStudioStore.getState().mounted).toBe(true);
+    expect(useCtStudioStore.getState().connected).toBe(true);
+
+    useCtStudioStore.getState().setLegacyEnabled(false);
+    expect(useCtStudioStore.getState().legacyEnabled).toBe(false);
+    expect(useCtStudioStore.getState().mounted).toBe(false);
+    expect(useCtStudioStore.getState().connected).toBe(false);
+    expect(useCtStudioStore.getState().badgeCount).toBe(0);
+
+    useCtStudioStore.getState().markBackgroundMounted();
+    useCtStudioStore.getState().openFromRoute({ ticket: "BLUE-1" });
+    useCtStudioStore.getState().openModal({ ticket: "BLUE-1" });
+    expect(useCtStudioStore.getState().mounted).toBe(false);
+    expect(useCtStudioStore.getState().modalOpen).toBe(false);
+
+    useCtStudioStore.getState().setLegacyEnabled(true);
+    expect(useCtStudioStore.getState().legacyEnabled).toBe(true);
+  });
 });
 
 describe("parseCtStudioInboundMessage", () => {

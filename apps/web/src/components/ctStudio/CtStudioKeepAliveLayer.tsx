@@ -92,7 +92,8 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
   const pathname = useLocation({
     select: (location) => location.pathname,
   });
-  const isActive = pathname === CT_STUDIO_ROUTE_PATH;
+  const legacyEnabled = useCtStudioStore((state) => state.legacyEnabled);
+  const isActive = legacyEnabled && pathname === CT_STUDIO_ROUTE_PATH;
   const mounted = useCtStudioStore((state) => state.mounted);
   const connected = useCtStudioStore((state) => state.connected);
   const modalOpen = useCtStudioStore((state) => state.modalOpen);
@@ -156,7 +157,7 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
   const lastPresentationDigestRef = useRef<string | null>(null);
   const prevPathnameRef = useRef(pathname);
 
-  const shouldRender = mounted || isVisible;
+  const shouldRender = legacyEnabled && (mounted || isVisible);
   const allThreadShells = useThreadShells(shouldRender);
 
   const getCurrentHostCatalog = useEffectEvent(() =>
@@ -731,7 +732,7 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- probes local ct-studio service lazily with bounded retries so users without ct-studio incur no background polling noise
   useEffect(() => {
-    if (mounted || isVisible || primaryEnvironmentId === null) return;
+    if (!legacyEnabled || mounted || isVisible || primaryEnvironmentId === null) return;
     let cancelled = false;
     let attempts = 0;
     let lastProbeAt = 0;
@@ -774,7 +775,7 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
       window.clearTimeout(secondTimer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [mounted, isVisible, primaryEnvironmentId, baseUrl, markBackgroundMounted]);
+  }, [legacyEnabled, mounted, isVisible, primaryEnvironmentId, baseUrl, markBackgroundMounted]);
 
   const connectionAttemptKey = `${baseUrl}:${reloadNonce}`;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reveals a friendly offline fallback if the active CT Studio iframe fails to handshake within the grace window

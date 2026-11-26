@@ -357,6 +357,7 @@ export const ThreadCtStudioCard = memo(function ThreadCtStudioCard({
   const gt = useGT();
   const canvas = useChatCanvas();
   const compactBySpace = (canvas?.detailsCardPlacement?.height ?? 480) < 420;
+  const legacyEnabled = useCtStudioStore((state) => state.legacyEnabled);
   const connected = useCtStudioStore((state) => state.connected);
   const badgeCount = useCtStudioStore((state) => state.badgeCount);
   const workspaceContext = useCtStudioStore((state) => state.workspaceContext);
@@ -365,7 +366,7 @@ export const ThreadCtStudioCard = memo(function ThreadCtStudioCard({
   const [manualCollapsed, setManualCollapsed] = useState<boolean | null>(null);
   const [selectedTab, setSelectedTab] = useState<"tasks" | "inbox" | null>(null);
 
-  if (!connected) return null;
+  if (!legacyEnabled || !connected) return null;
 
   const resolved = resolveThreadCtStudioLink(
     {
@@ -587,12 +588,13 @@ export const ThreadCtStudioPopoverRow = memo(function ThreadCtStudioPopoverRow({
 }: {
   threadRef: ScopedThreadRef;
 }) {
+  const legacyEnabled = useCtStudioStore((state) => state.legacyEnabled);
   const connected = useCtStudioStore((state) => state.connected);
   const workspaceContext = useCtStudioStore((state) => state.workspaceContext);
   const thread = useThreadShell(threadRef);
   const { openCtStudioModal } = useCtStudioNavigation();
 
-  if (!connected) return null;
+  if (!legacyEnabled || !connected) return null;
 
   const resolved = resolveThreadCtStudioLink(
     {

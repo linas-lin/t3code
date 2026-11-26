@@ -267,6 +267,7 @@ const KEYBINDING_GROUPS = [
     prefixes: ["theme", "appearance", "themeEditor"],
   },
   { id: "scripts", title: msg("Project scripts"), prefixes: ["script"] },
+  { id: "plugins", title: msg("Plugins"), prefixes: ["plugin"] },
 ] as const;
 const OTHER_KEYBINDING_GROUP = {
   id: "other",
@@ -440,8 +441,12 @@ export function buildWhenVariableOptions(): ReadonlyArray<WhenVariableOption> {
 export function buildKeybindingCommandOptions(
   keybindings: ResolvedKeybindingsConfig,
   resolve: MessageResolver = m,
+  extraCommands: ReadonlyArray<KeybindingCommand> = [],
 ): ReadonlyArray<KeybindingCommandOption> {
   const commands = new Set<KeybindingCommand>(STATIC_KEYBINDING_COMMANDS);
+  for (const command of extraCommands) {
+    commands.add(command);
+  }
   for (const binding of keybindings) {
     commands.add(binding.command);
   }
@@ -552,6 +557,13 @@ export function commandLabel(command: KeybindingCommand, resolve: MessageResolve
     return resolve(
       msg("Run Script: {name}", {
         name: titleCaseCommandSegment(raw.slice("script.".length, -".run".length)),
+      }),
+    );
+  }
+  if (raw.startsWith("plugin.") && raw.endsWith(".toggle")) {
+    return resolve(
+      msg("Plugin: Toggle {name}", {
+        name: titleCaseCommandSegment(raw.slice("plugin.".length, -".toggle".length)),
       }),
     );
   }

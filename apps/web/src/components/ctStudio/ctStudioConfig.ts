@@ -1,6 +1,26 @@
 export const DEFAULT_CT_STUDIO_URL = "http://127.0.0.1:4600";
 const CT_STUDIO_URL_STORAGE_KEY = "t3code:ct-studio:url";
 const CT_STUDIO_REPO_URL_STORAGE_KEY = "t3code:ct-studio:repo-url";
+const CT_STUDIO_LEGACY_ENABLED_STORAGE_KEY = "t3code:ct-studio:legacy-enabled";
+
+export function readLegacyCtStudioEnabled(): boolean {
+  try {
+    const saved = window.localStorage.getItem(CT_STUDIO_LEGACY_ENABLED_STORAGE_KEY);
+    if (saved === "false" || saved === "0") return false;
+    if (saved === "true" || saved === "1") return true;
+  } catch {
+    // Ignore storage failures in restricted contexts.
+  }
+  return true;
+}
+
+export function writeLegacyCtStudioEnabled(enabled: boolean): void {
+  try {
+    window.localStorage.setItem(CT_STUDIO_LEGACY_ENABLED_STORAGE_KEY, enabled ? "true" : "false");
+  } catch {
+    // Ignore storage failures in restricted contexts.
+  }
+}
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 const NON_TICKET_PREFIXES = new Set([

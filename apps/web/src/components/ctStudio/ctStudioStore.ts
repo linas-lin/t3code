@@ -1,7 +1,13 @@
 import { create } from "zustand";
 
 import { EMPTY_CT_STUDIO_WORKSPACE_CONTEXT, type CtStudioWorkspaceContext } from "./ctStudioBridge";
-import { buildCtStudioUrl, readCtStudioUrl, writeCtStudioUrl } from "./ctStudioConfig";
+import {
+  buildCtStudioUrl,
+  readCtStudioUrl,
+  readLegacyCtStudioEnabled,
+  writeCtStudioUrl,
+  writeLegacyCtStudioEnabled,
+} from "./ctStudioConfig";
 
 export type CtStudioNavView = "timeline" | "jira" | "sessions" | "settings";
 
@@ -17,6 +23,7 @@ export interface CtStudioNavRequest extends CtStudioNavTarget {
 }
 
 interface CtStudioStoreState {
+  readonly legacyEnabled: boolean;
   readonly mounted: boolean;
   readonly connected: boolean;
   readonly modalOpen: boolean;
@@ -26,6 +33,7 @@ interface CtStudioStoreState {
   readonly reloadNonce: number;
   readonly pendingNav: CtStudioNavRequest | null;
   readonly workspaceContext: CtStudioWorkspaceContext;
+  readonly setLegacyEnabled: (enabled: boolean) => void;
   readonly openFromRoute: (target?: CtStudioNavTarget) => void;
   readonly openModal: (target?: CtStudioNavTarget) => void;
   readonly closeModal: () => void;
@@ -40,6 +48,7 @@ interface CtStudioStoreState {
 
 let navSequence = 0;
 const initialBaseUrl = readCtStudioUrl();
+const initialLegacyEnabled = readLegacyCtStudioEnabled();
 
 function applyNavTarget(
   state: CtStudioStoreState,
@@ -75,6 +84,7 @@ function applyNavTarget(
 }
 
 export const useCtStudioStore = create<CtStudioStoreState>((set) => ({
+  legacyEnabled: initialLegacyEnabled,
   mounted: false,
   connected: false,
   modalOpen: false,
@@ -84,18 +94,45 @@ export const useCtStudioStore = create<CtStudioStoreState>((set) => ({
   reloadNonce: 0,
   pendingNav: null,
   workspaceContext: EMPTY_CT_STUDIO_WORKSPACE_CONTEXT,
+  setLegacyEnabled: (enabled) => {
+    writeLegacyCtStudioEnabled(enabled);
+    set((state) => {
+      if (state.legacyEnabled === enabled) return state;
+      if (!enabled) {
+        return {
+          legacyEnabled: false,
+          mounted: false,
+          connected: false,
+          modalOpen: false,
+          badgeCount: 0,
+          pendingNav: null,
+          workspaceContext: EMPTY_CT_STUDIO_WORKSPACE_CONTEXT,
+        };
+      }
+      return { legacyEnabled: true };
+    });
+  },
   openFromRoute: (target) =>
-    set((state) => ({
-      ...applyNavTarget(state, target),
-      modalOpen: false,
-    })),
+    set((state) =>
+      state.legacyEnabled
+        ? {
+            ...applyNavTarget(state, target),
+            modalOpen: false,
+          }
+        : { modalOpen: false },
+    ),
   openModal: (target) =>
-    set((state) => ({
-      ...applyNavTarget(state, target),
-      modalOpen: true,
-    })),
+    set((state) =>
+      state.legacyEnabled
+        ? {
+            ...applyNavTarget(state, target),
+            modalOpen: true,
+          }
+        : state,
+    ),
   closeModal: () => set((state) => (state.modalOpen ? { modalOpen: false } : state)),
-  markBackgroundMounted: () => set((state) => (state.mounted ? state : { mounted: true })),
+  markBackgroundMounted: () =>
+    set((state) => (!state.legacyEnabled || state.mounted ? state : { mounted: true })),
   setConnected: (connected) =>
     set((state) => (state.connected === connected ? state : { connected })),
   setBadgeCount: (count) =>
