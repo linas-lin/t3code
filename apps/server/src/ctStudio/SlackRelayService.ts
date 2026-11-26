@@ -317,6 +317,40 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
       const channelNameCache = new Map<string, string>();
       const userNameCache = new Map<string, string>();
       const botUserIdCache = new Map<string, string>();
+      const userTokenIdentityCache = new Map<string, SlackWorkspaceIdentity>();
+
+      const resolveUserTokenIdentity = Effect.fn("SlackRelayService.resolveUserTokenIdentity")(
+        function* (token: string) {
+          if (!token) return null as SlackWorkspaceIdentity | null;
+          const cached = userTokenIdentityCache.get(token);
+          if (cached !== undefined) return cached;
+          const res = yield* slackApiCall("auth.test", token, {}, { isGet: true }).pipe(
+            Effect.orElseSucceed(() => null),
+          );
+          if (!res) return null;
+          const identity: SlackWorkspaceIdentity = {
+            team: typeof res.team === "string" ? res.team : null,
+            teamId: typeof res.team_id === "string" ? res.team_id : null,
+            url: typeof res.url === "string" ? res.url : null,
+            user: typeof res.user === "string" ? res.user : null,
+            userId: typeof res.user_id === "string" ? res.user_id : null,
+          };
+          userTokenIdentityCache.set(token, identity);
+          return identity;
+        },
+      );
+
+      const verifyUserTokenOwnership = Effect.fn("SlackRelayService.verifyUserTokenOwnership")(
+        function* (cfg: SlackRelayConfig) {
+          if (!cfg.userToken || !cfg.myUserId) return;
+          const identity = yield* resolveUserTokenIdentity(cfg.userToken);
+          if (identity?.userId && identity.userId !== cfg.myUserId) {
+            return yield* new SlackRelayError({
+              message: `User Token (xoxp-...) 属于用户 ${identity.user ?? "unknown"} (${identity.userId})，与 My User ID (${cfg.myUserId}) 不一致！请勿使用他人或 App 安装者的 User Token，请通过团队 OAuth 授权页（/oauth/start）获取属于你自己的 Token。`,
+            });
+          }
+        },
+      );
 
       const resolveBotUserId = Effect.fn("SlackRelayService.resolveBotUserId")(function* (
         cfg: SlackRelayConfig,
@@ -446,6 +480,13 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         if (!config.workerWsUrl || !config.relaySecret || !config.myUserId) {
           connectionState = "error";
           lastError = "请完整填写 Worker WS URL、Relay Secret 与 My User ID。";
+          return;
+        }
+
+        const ownershipCheck = yield* verifyUserTokenOwnership(config).pipe(Effect.result);
+        if (ownershipCheck._tag === "Failure") {
+          connectionState = "error";
+          lastError = ownershipCheck.failure.message;
           return;
         }
 
@@ -847,6 +888,7 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
               message: "未配置 User Token (xoxp-...)，无法自动回复。",
             });
           }
+          yield* verifyUserTokenOwnership(config);
           yield* slackApiCall("chat.postMessage", config.userToken, {
             channel: event.channel,
             thread_ts: replyThreadTs,
@@ -996,6 +1038,7 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
           prev.workerWsUrl !== config.workerWsUrl ||
           prev.relaySecret !== config.relaySecret ||
           prev.myUserId !== config.myUserId ||
+          prev.userToken !== config.userToken ||
           prev.replayOfflineEvents !== config.replayOfflineEvents;
 
         if (connectionChanged) {
@@ -1023,6 +1066,7 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
             message: "未配置 User Token (xoxp-...)，无法发送。",
           });
         }
+        yield* verifyUserTokenOwnership(config);
         const textToSend =
           typeof overrideText === "string" && overrideText.trim().length > 0
             ? overrideText.trim()
