@@ -29,6 +29,7 @@ import {
   updateSlackRelayConfig,
   type SlackRelayReplyMode,
   type SlackRelayRuntimeMode,
+  type SlackRelaySessionScope,
   type SlackRelaySnapshot,
 } from "./slackRelayClient";
 
@@ -38,6 +39,12 @@ const INPUT_CLASS =
 const REPLY_MODE_LABELS: Readonly<Record<SlackRelayReplyMode, string>> = {
   draft: msg("Draft only (review before sending)"),
   auto: msg("Auto reply (post directly to thread)"),
+};
+
+const SESSION_SCOPE_LABELS: Readonly<Record<SlackRelaySessionScope, string>> = {
+  thread: msg("Per Slack thread (default)"),
+  channel: msg("Shared per channel"),
+  "channel-daily": msg("Shared per channel (new thread daily)"),
 };
 
 const RUNTIME_MODE_LABELS: Readonly<Record<SlackRelayRuntimeMode, string>> = {
@@ -71,6 +78,33 @@ function parseKeywordList(value: string): ReadonlyArray<string> {
     .filter(Boolean);
 }
 
+function parseChannelSessionScopesInput(
+  value: string,
+): Readonly<Record<string, SlackRelaySessionScope>> {
+  const out: Record<string, SlackRelaySessionScope> = {};
+  for (const entry of value.split(/[,，;\n]+/)) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const match = trimmed.match(/^([A-Za-z0-9_-]+)\s*[=:]\s*([A-Za-z-]+)$/);
+    if (!match || !match[1] || !match[2]) continue;
+    const channelId = match[1].toUpperCase();
+    const scope = match[2].toLowerCase();
+    if (scope === "thread" || scope === "channel" || scope === "channel-daily") {
+      out[channelId] = scope;
+    }
+  }
+  return out;
+}
+
+function formatChannelSessionScopesInput(
+  scopes: Readonly<Record<string, SlackRelaySessionScope>> | undefined,
+): string {
+  if (!scopes) return "";
+  return Object.entries(scopes)
+    .map(([channelId, scope]) => `${channelId}=${scope}`)
+    .join(", ");
+}
+
 export function SlackRelaySettingsSection() {
   const gt = useGT();
   const navigate = useNavigate();
@@ -95,6 +129,8 @@ export function SlackRelaySettingsSection() {
   const [botToken, setBotToken] = useState("");
   const [replyMode, setReplyMode] = useState<SlackRelayReplyMode>("draft");
   const [replyPrefix, setReplyPrefix] = useState("🤖 [AI 代理自动回复]");
+  const [sessionScope, setSessionScope] = useState<SlackRelaySessionScope>("thread");
+  const [channelSessionScopesText, setChannelSessionScopesText] = useState("");
   const [runtimeMode, setRuntimeMode] = useState<SlackRelayRuntimeMode>("approval-required");
   const [projectId, setProjectId] = useState("");
   const [groupName, setGroupName] = useState("Slack");
@@ -120,6 +156,8 @@ export function SlackRelaySettingsSection() {
     setBotToken("");
     setReplyMode(c.replyMode);
     setReplyPrefix(c.replyPrefix);
+    setSessionScope(c.sessionScope ?? "thread");
+    setChannelSessionScopesText(formatChannelSessionScopesInput(c.channelSessionScopes));
     setRuntimeMode(c.runtimeMode);
     setProjectId(c.projectId);
     setGroupName(c.groupName);
@@ -159,6 +197,8 @@ export function SlackRelaySettingsSection() {
         setBotToken("");
         setReplyMode(c.replyMode);
         setReplyPrefix(c.replyPrefix);
+        setSessionScope(c.sessionScope ?? "thread");
+        setChannelSessionScopesText(formatChannelSessionScopesInput(c.channelSessionScopes));
         setRuntimeMode(c.runtimeMode);
         setProjectId(c.projectId);
         setGroupName(c.groupName);
@@ -262,6 +302,8 @@ export function SlackRelaySettingsSection() {
         ...(botToken.trim() ? { botToken: botToken.trim() } : {}),
         replyMode,
         replyPrefix,
+        sessionScope,
+        channelSessionScopes: parseChannelSessionScopesInput(channelSessionScopesText),
         runtimeMode,
         projectId,
         groupName,
@@ -578,6 +620,47 @@ export function SlackRelaySettingsSection() {
             placeholder={gt("🤖 [AI 代理自动回复]")}
             className={INPUT_CLASS}
           />
+        }
+      />
+
+      <SettingsRow
+        id="ct-studio-slack-relay-session-scope"
+        title={gt("Session reuse scope")}
+        description={
+          <T>
+            Choose whether each Slack thread starts a new CT Code thread or shares one per channel
+            (optionally rotating daily). Deleting the thread resets channel context.
+          </T>
+        }
+        control={
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+            <Select
+              value={sessionScope}
+              onValueChange={(value) => {
+                if (value === "thread" || value === "channel" || value === "channel-daily") {
+                  setSessionScope(value);
+                }
+              }}
+            >
+              <SelectTrigger className="h-8 w-full sm:w-72">
+                <SelectValue>{m(SESSION_SCOPE_LABELS[sessionScope])}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectItem value="thread">{m(SESSION_SCOPE_LABELS.thread)}</SelectItem>
+                <SelectItem value="channel">{m(SESSION_SCOPE_LABELS.channel)}</SelectItem>
+                <SelectItem value="channel-daily">
+                  {m(SESSION_SCOPE_LABELS["channel-daily"])}
+                </SelectItem>
+              </SelectPopup>
+            </Select>
+            <input
+              type="text"
+              value={channelSessionScopesText}
+              onChange={(event) => setChannelSessionScopesText(event.target.value)}
+              placeholder={gt("Per-channel overrides (e.g. C0123=channel-daily, C0456=thread)")}
+              className={INPUT_CLASS}
+            />
+          </div>
         }
       />
 

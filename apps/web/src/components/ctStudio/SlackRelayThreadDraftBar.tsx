@@ -10,6 +10,15 @@ import {
   type SlackRelayPendingDraft,
 } from "./slackRelayClient";
 
+function summarizeDraftSource(text: string): string {
+  const cleaned = text
+    .replace(/<@[UW][A-Z0-9]+(?:\|[^>]+)?>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  return cleaned.length > 72 ? `${cleaned.slice(0, 72)}…` : cleaned;
+}
+
 export function SlackRelayThreadDraftBar({ threadId }: { readonly threadId: string | null }) {
   const gt = useGT();
   const [drafts, setDrafts] = useState<ReadonlyArray<SlackRelayPendingDraft>>([]);
@@ -74,17 +83,23 @@ export function SlackRelayThreadDraftBar({ threadId }: { readonly threadId: stri
       {visibleDrafts.map((draft) => {
         const value = editedTextById[draft.id] ?? draft.replyText;
         const busy = busyId === draft.id;
+        const channelLabel = draft.channelName ? `#${draft.channelName}` : draft.channel;
+        const senderLabel = draft.senderName || draft.senderUserId;
+        const sourceSummary = summarizeDraftSource(draft.originalText);
         return (
           <div
             key={draft.id}
             className="rounded-xl border border-border bg-card/95 p-3 shadow-xs backdrop-blur-xs"
           >
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-medium text-foreground">
                 <Badge variant="secondary" size="sm">
                   <T>Pending Slack reply</T>
                 </Badge>
-                <span className="font-mono text-muted-foreground">{draft.channel}</span>
+                <span className="font-mono text-muted-foreground">{channelLabel}</span>
+                {senderLabel ? (
+                  <span className="text-muted-foreground">· {senderLabel}</span>
+                ) : null}
               </div>
               <div className="flex items-center gap-1.5">
                 <Button
@@ -100,6 +115,9 @@ export function SlackRelayThreadDraftBar({ threadId }: { readonly threadId: stri
                 </Button>
               </div>
             </div>
+            {sourceSummary ? (
+              <p className="mb-2 truncate text-xs text-muted-foreground">{sourceSummary}</p>
+            ) : null}
             <textarea
               value={value}
               onChange={(event) =>

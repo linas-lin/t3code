@@ -4,6 +4,7 @@ import { readDesktopPrimaryBearerToken } from "../../environments/primary/deskto
 import { resolvePrimaryEnvironmentHttpUrl } from "../../environments/primary/target";
 
 export type SlackRelayReplyMode = "auto" | "draft";
+export type SlackRelaySessionScope = "thread" | "channel" | "channel-daily";
 export type SlackRelayRuntimeMode = "approval-required" | "full-access";
 export type SlackRelayConnectionState = "disabled" | "connecting" | "connected" | "error";
 
@@ -19,6 +20,8 @@ export interface SlackRelayPublicConfig {
   readonly botTokenPreview: string;
   readonly replyMode: SlackRelayReplyMode;
   readonly replyPrefix: string;
+  readonly sessionScope: SlackRelaySessionScope;
+  readonly channelSessionScopes: Readonly<Record<string, SlackRelaySessionScope>>;
   readonly allowSelfMention: boolean;
   readonly requireBotMention: boolean;
   readonly triggerKeywords: ReadonlyArray<string>;
@@ -48,6 +51,8 @@ export interface SlackRelayConfigPatch {
   readonly clearBotToken?: boolean;
   readonly replyMode?: SlackRelayReplyMode;
   readonly replyPrefix?: string;
+  readonly sessionScope?: SlackRelaySessionScope;
+  readonly channelSessionScopes?: Readonly<Record<string, SlackRelaySessionScope>>;
   readonly allowSelfMention?: boolean;
   readonly requireBotMention?: boolean;
   readonly triggerKeywords?: ReadonlyArray<string>;
@@ -77,10 +82,12 @@ export interface SlackRelayPendingDraft {
   readonly id: string;
   readonly createdAt: string;
   readonly channel: string;
+  readonly channelName?: string | null;
   readonly ts: string;
   readonly threadTs: string;
   readonly t3ThreadId: string | null;
   readonly senderUserId: string | null;
+  readonly senderName?: string | null;
   readonly originalText: string;
   readonly replyText: string;
 }

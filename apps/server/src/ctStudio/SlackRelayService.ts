@@ -1,10 +1,15 @@
 import {
+  ChatAttachmentId,
   CommandId,
+  isProviderSendTurnSupportedImageMimeType,
   MessageId,
   ProjectId,
+  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   ProviderInstanceId,
   ThreadId,
   toThreadGroupTag,
+  type ChatAttachment,
+  type ChatImageAttachment,
   type ModelSelection,
 } from "@t3tools/contracts";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
@@ -23,6 +28,7 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
+import { createAttachmentId, resolveAttachmentPath } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath } from "../os-jank.ts";
 import * as ProjectionStoreV2 from "../orchestration-v2/ProjectionStore.ts";
@@ -37,15 +43,19 @@ import {
   formatSlackReplyText,
   formatSlackThreadTitle,
   isSlackNoReplyResponse,
+  isTrustedSlackFileUrl,
   mergeSlackRelayConfigPatch,
   normalizeSlackRelayConfig,
   parseSlackMessageUrl,
+  selectSlackImagesToDownload,
   selectSlackThreadHistory,
   shouldProcessSlackRelayEvent,
   toPublicSlackRelayConfig,
+  type SlackImageCandidate,
   type SlackRelayConfig,
   type SlackRelayConfigPatch,
   type SlackRelayConnectionState,
+  type SlackRelayFile,
   type SlackRelayMentionPayload,
   type SlackRelayPendingDraft,
   type SlackRelayPublicConfig,
@@ -59,6 +69,7 @@ export class SlackRelayError extends Schema.TaggedError<SlackRelayError>()("Slac
 
 interface SlackRelayPersistedState {
   processed: string[];
+  seenThreads: string[];
   threads: Record<string, { readonly threadId: string; readonly projectId: string }>;
   pending: SlackRelayPendingDraft[];
 }
@@ -91,6 +102,43 @@ const TERMINAL_RUN_STATUSES = new Set([
 ]);
 const RUN_POLL_INTERVAL_MS = 1000;
 const RUN_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
+const SLACK_IMAGE_DOWNLOAD_TIMEOUT_MS = 10_000;
+
+async function fetchSlackBinaryWithRedirects(
+  initialUrl: string,
+  token: string,
+  maxRedirects = 5,
+): Promise<Response> {
+  let currentUrl = initialUrl;
+  for (let hop = 0; hop <= maxRedirects; hop += 1) {
+    const headers: Record<string, string> = isTrustedSlackFileUrl(currentUrl)
+      ? { Authorization: `Bearer ${token}` }
+      : {};
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SLACK_IMAGE_DOWNLOAD_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(currentUrl, {
+        method: "GET",
+        headers,
+        redirect: "manual",
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location");
+      if (!location) {
+        throw new Error(`HTTP ${res.status} 缺少 Location`);
+      }
+      currentUrl = new URL(location, currentUrl).toString();
+      continue;
+    }
+    return res;
+  }
+  throw new Error("重定向次数过多");
+}
 
 function safeParseJson<T>(raw: string, fallback: T): T {
   try {
@@ -295,6 +343,7 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
       const loadedState = yield* readJsonFile<Partial<SlackRelayPersistedState>>(statePath, {});
       const state: SlackRelayPersistedState = {
         processed: Array.isArray(loadedState.processed) ? [...loadedState.processed] : [],
+        seenThreads: Array.isArray(loadedState.seenThreads) ? [...loadedState.seenThreads] : [],
         threads:
           loadedState.threads && typeof loadedState.threads === "object"
             ? { ...loadedState.threads }
@@ -451,6 +500,13 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         if (state.processed.length > 500) {
           state.processed = state.processed.slice(-500);
         }
+        if (state.seenThreads.length > 500) {
+          state.seenThreads = state.seenThreads.slice(-500);
+        }
+        const threadEntries = Object.entries(state.threads);
+        if (threadEntries.length > 500) {
+          state.threads = Object.fromEntries(threadEntries.slice(-500));
+        }
         yield* writeJsonAtomic(statePath, state);
       });
 
@@ -592,7 +648,12 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         if (!token || !event.thread_ts) {
           return [] as ReadonlyArray<SlackThreadHistoryItem>;
         }
-        const allMessages: Array<{ ts?: string; user?: string; text?: string }> = [];
+        const allMessages: Array<{
+          ts?: string;
+          user?: string;
+          text?: string;
+          files?: ReadonlyArray<SlackRelayFile>;
+        }> = [];
         let cursor: string | undefined;
         const maxPages = 3;
         for (let page = 0; page < maxPages; page += 1) {
@@ -604,7 +665,12 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
           ).pipe(Effect.orElseSucceed(() => null));
           if (!res || !Array.isArray(res.messages)) break;
           allMessages.push(
-            ...(res.messages as Array<{ ts?: string; user?: string; text?: string }>),
+            ...(res.messages as Array<{
+              ts?: string;
+              user?: string;
+              text?: string;
+              files?: ReadonlyArray<SlackRelayFile>;
+            }>),
           );
           const meta = res.response_metadata as { next_cursor?: string } | undefined;
           const next = typeof meta?.next_cursor === "string" ? meta.next_cursor.trim() : "";
@@ -734,6 +800,123 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         return yield* new SlackRelayError({ message: "等待 Agent 回复超时。" });
       });
 
+      const downloadSlackImagesToAttachments = Effect.fn(
+        "SlackRelayService.downloadSlackImagesToAttachments",
+      )(function* (
+        cfg: SlackRelayConfig,
+        targetThreadId: ThreadId,
+        imageFiles: ReadonlyArray<SlackImageCandidate>,
+      ) {
+        if (imageFiles.length === 0) {
+          return {
+            attachments: [] as ReadonlyArray<ChatAttachment>,
+            savedPaths: [] as ReadonlyArray<string>,
+            notes: [] as ReadonlyArray<string>,
+          };
+        }
+        const token = cfg.botToken || cfg.userToken;
+        if (!token) {
+          return {
+            attachments: [] as ReadonlyArray<ChatAttachment>,
+            savedPaths: [] as ReadonlyArray<string>,
+            notes: ["消息包含图片附件，但未配置 Bot/User Token，无法下载图片。"],
+          };
+        }
+
+        yield* fs
+          .makeDirectory(serverConfig.attachmentsDir, { recursive: true })
+          .pipe(Effect.ignore);
+
+        const attachments: ChatImageAttachment[] = [];
+        const savedPaths: string[] = [];
+        const notes: string[] = [];
+
+        yield* Effect.forEach(
+          imageFiles,
+          (img) =>
+            Effect.gen(function* () {
+              if (img.size !== null && img.size > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+                notes.push(`图片 ${img.name} 超过 10MB 限制，已跳过下载。`);
+                return;
+              }
+              const downloaded = yield* Effect.tryPromise({
+                try: async () => {
+                  const res = await fetchSlackBinaryWithRedirects(img.url, token);
+                  if (!res.ok) {
+                    return { error: `HTTP ${res.status}` } as const;
+                  }
+                  const rawType = (res.headers.get("content-type") || "")
+                    .split(";")[0]
+                    ?.trim()
+                    .toLowerCase();
+                  const normalizedMime = rawType === "image/jpg" ? "image/jpeg" : rawType || "";
+                  if (!normalizedMime.startsWith("image/")) {
+                    return {
+                      error: `返回非图片内容（${normalizedMime || "unknown"}，请确认 Slack App Bot Token Scopes 已添加 files:read）`,
+                    } as const;
+                  }
+                  const finalMime = isProviderSendTurnSupportedImageMimeType(normalizedMime)
+                    ? normalizedMime
+                    : isProviderSendTurnSupportedImageMimeType(img.mimetype)
+                      ? img.mimetype
+                      : "";
+                  if (!finalMime) {
+                    return { error: `暂不支持的图片格式 ${normalizedMime}` } as const;
+                  }
+                  const bytes = new Uint8Array(await res.arrayBuffer());
+                  if (bytes.byteLength === 0) {
+                    return { error: "图片内容为空" } as const;
+                  }
+                  if (bytes.byteLength > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+                    return { error: "超过 10MB 限制" } as const;
+                  }
+                  return { bytes, mimeType: finalMime } as const;
+                },
+                catch: (err) => (err instanceof Error ? err.message : String(err)),
+              }).pipe(Effect.catch((msg) => Effect.succeed({ error: msg } as const)));
+
+              if ("error" in downloaded) {
+                notes.push(`图片 ${img.name} 下载失败：${downloaded.error}`);
+                return;
+              }
+
+              const rawId = createAttachmentId(targetThreadId);
+              if (!rawId) {
+                notes.push(`图片 ${img.name} 无法生成附件 ID，已跳过。`);
+                return;
+              }
+              const attachment: ChatImageAttachment = {
+                type: "image",
+                id: ChatAttachmentId.make(rawId),
+                name: img.name,
+                mimeType: downloaded.mimeType,
+                sizeBytes: downloaded.bytes.byteLength,
+              };
+              const targetPath = resolveAttachmentPath({
+                attachmentsDir: serverConfig.attachmentsDir,
+                attachment,
+              });
+              if (!targetPath) {
+                notes.push(`图片 ${img.name} 附件路径无效，已跳过。`);
+                return;
+              }
+              const written = yield* fs.writeFile(targetPath, downloaded.bytes).pipe(
+                Effect.as(true),
+                Effect.orElseSucceed(() => false),
+              );
+              if (!written) {
+                notes.push(`图片 ${img.name} 写入本地附件目录失败，已跳过。`);
+                return;
+              }
+              attachments.push(attachment);
+              savedPaths.push(targetPath);
+            }),
+          { concurrency: 4, discard: true },
+        );
+
+        return { attachments, savedPaths, notes };
+      });
+
       const handleMention = Effect.fn("SlackRelayService.handleMention")(function* (
         payload: SlackRelayMentionPayload,
       ) {
@@ -741,13 +924,15 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         if (stopped || !currentConfig.enabled) {
           return;
         }
-        lastEventAt = DateTime.formatIso(yield* DateTime.now);
+        const now = yield* DateTime.now;
+        lastEventAt = DateTime.formatIso(now);
         const processedSet = new Set(state.processed);
         const botUserId = currentConfig.requireBotMention
           ? yield* resolveBotUserId(currentConfig)
           : null;
         const check = shouldProcessSlackRelayEvent(payload, currentConfig, processedSet, {
           botUserId,
+          now,
         });
         if (!check.ok) {
           return;
@@ -763,7 +948,11 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         const history = yield* fetchThreadContext(currentConfig, event);
         const channelName = yield* resolveChannelName(currentConfig, event.channel);
         const senderName = yield* resolveUserName(currentConfig, event.user);
-        const mapped = state.threads[check.threadKey];
+        const mapped = state.threads[check.sessionKey];
+        const isReturningThread =
+          mapped !== undefined &&
+          (check.sessionScope === "thread" ||
+            state.seenThreads.includes(`${mapped.threadId}:${check.threadKey}`));
 
         const mappedWorkspaceRoot = mapped
           ? yield* projectService.getShell(ProjectId.make(mapped.projectId)).pipe(
@@ -776,6 +965,24 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         let runId: string | null = null;
 
         if (mapped) {
+          const existingThreadId = ThreadId.make(mapped.threadId);
+          const { selected: followUpImages, omittedCount: followUpOmitted } =
+            selectSlackImagesToDownload(event, history, { isExistingSession: isReturningThread });
+          const downloadedFollowUp = yield* downloadSlackImagesToAttachments(
+            currentConfig,
+            existingThreadId,
+            followUpImages,
+          );
+          const followUpNotes = [
+            ...downloadedFollowUp.notes,
+            ...(followUpOmitted > 0
+              ? [
+                  isReturningThread
+                    ? `另有 ${followUpOmitted} 张超出数量上限的图片未下载。`
+                    : `另有 ${followUpOmitted} 张历史或超出数量上限的图片未下载。`,
+                ]
+              : []),
+          ];
           const promptFile = yield* loadPromptFile(
             currentConfig.promptFilePath,
             mappedWorkspaceRoot,
@@ -786,8 +993,11 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
             threadMessages: history,
             customPrompt: currentConfig.customPrompt,
             promptFile,
+            attachedImageNames: downloadedFollowUp.attachments.map((att) => att.name),
+            imageNotes: followUpNotes,
+            sessionScope: check.sessionScope,
+            isReturningThread,
           });
-          const existingThreadId = ThreadId.make(mapped.threadId);
           const sendUuid = yield* randomUuidV4;
           const msgUuid = yield* randomUuidV4;
           const sendRes = yield* threadManagement
@@ -797,7 +1007,7 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
               threadId: existingThreadId,
               messageId: MessageId.make(`slack-relay:msg:${msgUuid}`),
               text: prompt,
-              attachments: [],
+              attachments: downloadedFollowUp.attachments,
               mode: "queue",
               createdBy: "user",
               creationSource: "web",
@@ -808,7 +1018,12 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
             threadId = existingThreadId;
             runId = sendRes.value.run?.id ?? null;
           } else {
-            delete state.threads[check.threadKey];
+            yield* Effect.forEach(
+              downloadedFollowUp.savedPaths,
+              (filePath) => fs.remove(filePath, { force: true }).pipe(Effect.ignore),
+              { discard: true },
+            );
+            delete state.threads[check.sessionKey];
             yield* persistState();
           }
         }
@@ -816,6 +1031,20 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         if (threadId === null) {
           const { projectId, workspaceRoot, modelSelection } =
             yield* resolveTargetProjectAndModel();
+          const newThreadId = ThreadId.make(yield* randomUuidV4);
+          const { selected: initialImages, omittedCount: initialOmitted } =
+            selectSlackImagesToDownload(event, history, { isExistingSession: false });
+          const downloadedInitial = yield* downloadSlackImagesToAttachments(
+            currentConfig,
+            newThreadId,
+            initialImages,
+          );
+          const initialNotes = [
+            ...downloadedInitial.notes,
+            ...(initialOmitted > 0
+              ? [`另有 ${initialOmitted} 张历史或超出数量上限的图片未下载。`]
+              : []),
+          ];
           const promptFile = yield* loadPromptFile(currentConfig.promptFilePath, workspaceRoot);
           const prompt = buildSlackRelayPrompt(payload, {
             channelName,
@@ -823,13 +1052,23 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
             threadMessages: history,
             customPrompt: currentConfig.customPrompt,
             promptFile,
+            attachedImageNames: downloadedInitial.attachments.map((att) => att.name),
+            imageNotes: initialNotes,
+            sessionScope: check.sessionScope,
+            isReturningThread: false,
           });
-          const title = formatSlackThreadTitle(event, { channelName, senderName });
+          const title = formatSlackThreadTitle(event, {
+            channelName,
+            senderName,
+            sessionScope: check.sessionScope,
+            dateKey: check.dateKey,
+          });
           const launchUuid = yield* randomUuidV4;
           const msgUuid = yield* randomUuidV4;
           const commandId = CommandId.make(`slack-relay:launch:${launchUuid}`);
           const launched = yield* threadLaunch.launch({
             commandId,
+            threadId: newThreadId,
             projectId,
             title,
             titleRenamed: true,
@@ -840,7 +1079,7 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
             initialMessage: {
               messageId: MessageId.make(`slack-relay:msg:${msgUuid}`),
               text: prompt,
-              attachments: [],
+              attachments: downloadedInitial.attachments,
             },
             createdBy: "user",
             creationSource: "web",
@@ -848,7 +1087,7 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
 
           threadId = launched.threadId;
           runId = launched.projection.runs.at(-1)?.id ?? null;
-          state.threads[check.threadKey] = { threadId, projectId };
+          state.threads[check.sessionKey] = { threadId, projectId };
           yield* persistState();
 
           const groupTag = currentConfig.groupName
@@ -865,6 +1104,12 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
               })
               .pipe(Effect.ignore);
           }
+        }
+
+        const seenThreadKey = `${threadId}:${check.threadKey}`;
+        if (!state.seenThreads.includes(seenThreadKey)) {
+          state.seenThreads.push(seenThreadKey);
+          yield* persistState();
         }
 
         const replyBody = yield* waitForAssistantReply(threadId, runId);
@@ -903,10 +1148,12 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
             id: `draft-${draftUuid.slice(0, 8)}`,
             createdAt: nowIso,
             channel: event.channel,
+            channelName: channelName ?? null,
             ts: event.ts,
             threadTs: replyThreadTs,
             t3ThreadId: threadId,
             senderUserId: event.user ?? null,
+            senderName: senderName ?? null,
             originalText: event.text,
             replyText: formatted,
           });
