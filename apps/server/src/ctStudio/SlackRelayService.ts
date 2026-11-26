@@ -48,7 +48,7 @@ import {
   normalizeSlackRelayConfig,
   parseSlackMessageUrl,
   selectSlackImagesToDownload,
-  selectSlackThreadHistory,
+  selectSlackThreadHistoryForTurn,
   shouldProcessSlackRelayEvent,
   toPublicSlackRelayConfig,
   type SlackImageCandidate,
@@ -60,7 +60,10 @@ import {
   type SlackRelayPendingDraft,
   type SlackRelayPublicConfig,
   type SlackRelayStatus,
+  type SlackThreadHistoryCursor,
   type SlackThreadHistoryItem,
+  type SlackThreadHistorySelection,
+  type SlackThreadRootAnchor,
 } from "./slackRelayCore.ts";
 
 export class SlackRelayError extends Schema.TaggedError<SlackRelayError>()("SlackRelayError", {
@@ -70,6 +73,7 @@ export class SlackRelayError extends Schema.TaggedError<SlackRelayError>()("Slac
 interface SlackRelayPersistedState {
   processed: string[];
   seenThreads: string[];
+  threadCursors: Record<string, SlackThreadHistoryCursor>;
   threads: Record<string, { readonly threadId: string; readonly projectId: string }>;
   pending: SlackRelayPendingDraft[];
 }
@@ -344,8 +348,16 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
       const state: SlackRelayPersistedState = {
         processed: Array.isArray(loadedState.processed) ? [...loadedState.processed] : [],
         seenThreads: Array.isArray(loadedState.seenThreads) ? [...loadedState.seenThreads] : [],
+        threadCursors:
+          loadedState.threadCursors &&
+          typeof loadedState.threadCursors === "object" &&
+          !Array.isArray(loadedState.threadCursors)
+            ? { ...loadedState.threadCursors }
+            : {},
         threads:
-          loadedState.threads && typeof loadedState.threads === "object"
+          loadedState.threads &&
+          typeof loadedState.threads === "object" &&
+          !Array.isArray(loadedState.threads)
             ? { ...loadedState.threads }
             : {},
         pending: Array.isArray(loadedState.pending) ? [...loadedState.pending] : [],
@@ -503,6 +515,10 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         if (state.seenThreads.length > 500) {
           state.seenThreads = state.seenThreads.slice(-500);
         }
+        const cursorEntries = Object.entries(state.threadCursors);
+        if (cursorEntries.length > 500) {
+          state.threadCursors = Object.fromEntries(cursorEntries.slice(-500));
+        }
         const threadEntries = Object.entries(state.threads);
         if (threadEntries.length > 500) {
           state.threads = Object.fromEntries(threadEntries.slice(-500));
@@ -640,66 +656,74 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         );
       });
 
-      const fetchThreadContext = Effect.fn("SlackRelayService.fetchThreadContext")(function* (
-        cfg: SlackRelayConfig,
-        event: SlackRelayMentionPayload["event"],
-      ) {
-        const token = cfg.botToken || cfg.userToken;
-        if (!token || !event.thread_ts) {
-          return [] as ReadonlyArray<SlackThreadHistoryItem>;
-        }
-        const allMessages: Array<{
-          ts?: string;
-          user?: string;
-          text?: string;
-          files?: ReadonlyArray<SlackRelayFile>;
-        }> = [];
-        let cursor: string | undefined;
-        const maxPages = 3;
-        for (let page = 0; page < maxPages; page += 1) {
-          const res = yield* slackApiCall(
-            "conversations.replies",
-            token,
-            { channel: event.channel, ts: event.thread_ts, limit: 100, cursor },
-            { isGet: true },
-          ).pipe(Effect.orElseSucceed(() => null));
-          if (!res || !Array.isArray(res.messages)) break;
-          allMessages.push(
-            ...(res.messages as Array<{
-              ts?: string;
-              user?: string;
-              text?: string;
-              files?: ReadonlyArray<SlackRelayFile>;
-            }>),
-          );
-          const meta = res.response_metadata as { next_cursor?: string } | undefined;
-          const next = typeof meta?.next_cursor === "string" ? meta.next_cursor.trim() : "";
-          if (!next) break;
-          cursor = next;
-        }
-        const selected = selectSlackThreadHistory(allMessages, event.ts, 25);
-        const uniqueUsers = [
-          ...new Set(
-            selected
-              .map((item) => item.user)
-              .filter(
-                (uid): uid is string =>
-                  typeof uid === "string" && uid.length > 0 && uid !== "system",
-              ),
-          ),
-        ];
+      const fetchRawThreadMessages = Effect.fn("SlackRelayService.fetchRawThreadMessages")(
+        function* (cfg: SlackRelayConfig, event: SlackRelayMentionPayload["event"]) {
+          const token = cfg.botToken || cfg.userToken;
+          if (!token || !event.thread_ts) {
+            return [] as ReadonlyArray<SlackThreadHistoryItem>;
+          }
+          const allMessages: Array<SlackThreadHistoryItem> = [];
+          let cursor: string | undefined;
+          const maxPages = 3;
+          for (let page = 0; page < maxPages; page += 1) {
+            const res = yield* slackApiCall(
+              "conversations.replies",
+              token,
+              { channel: event.channel, ts: event.thread_ts, limit: 100, cursor },
+              { isGet: true },
+            ).pipe(Effect.orElseSucceed(() => null));
+            if (!res || !Array.isArray(res.messages)) break;
+            allMessages.push(
+              ...(res.messages as Array<{
+                ts?: string;
+                user?: string;
+                text?: string;
+                files?: ReadonlyArray<SlackRelayFile>;
+              }>),
+            );
+            const meta = res.response_metadata as { next_cursor?: string } | undefined;
+            const next = typeof meta?.next_cursor === "string" ? meta.next_cursor.trim() : "";
+            if (!next) break;
+            cursor = next;
+          }
+          return allMessages;
+        },
+      );
+
+      const resolveHistorySelectionSenders = Effect.fn(
+        "SlackRelayService.resolveHistorySelectionSenders",
+      )(function* (cfg: SlackRelayConfig, selection: SlackThreadHistorySelection) {
+        const userIds = [
+          ...selection.messages.map((item) => item.user),
+          selection.rootAnchor?.user,
+        ].filter(
+          (uid): uid is string => typeof uid === "string" && uid.length > 0 && uid !== "system",
+        );
+        const uniqueUsers = [...new Set(userIds)];
         yield* Effect.forEach(uniqueUsers, (uid) => resolveUserName(cfg, uid), {
           concurrency: 4,
           discard: true,
         });
-        return selected.map((item): SlackThreadHistoryItem => {
-          if (item.user === "system") return { ...item, senderLabel: "system" };
-          const displayName = item.user ? userNameCache.get(item.user) : undefined;
-          return {
-            ...item,
-            senderLabel: displayName ? `${displayName} (${item.user})` : item.user || "unknown",
-          };
-        });
+        const labelFor = (user: string | undefined): string => {
+          if (user === "system") return "system";
+          const displayName = user ? userNameCache.get(user) : undefined;
+          return displayName ? `${displayName} (${user})` : user || "unknown";
+        };
+        const messages = selection.messages.map((item): SlackThreadHistoryItem => ({
+          ...item,
+          senderLabel: labelFor(item.user),
+        }));
+        const rootAnchor: SlackThreadRootAnchor | null = selection.rootAnchor
+          ? {
+              ...selection.rootAnchor,
+              senderLabel: labelFor(selection.rootAnchor.user),
+            }
+          : null;
+        return {
+          ...selection,
+          messages,
+          rootAnchor,
+        };
       });
 
       const resolveTargetProjectAndModel = Effect.fn(
@@ -945,7 +969,8 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
 
         yield* tryReaction("add", currentConfig, event.channel, event.ts, "eyes");
 
-        const history = yield* fetchThreadContext(currentConfig, event);
+        const nowMs = yield* Clock.currentTimeMillis;
+        const rawThreadMessages = yield* fetchRawThreadMessages(currentConfig, event);
         const channelName = yield* resolveChannelName(currentConfig, event.channel);
         const senderName = yield* resolveUserName(currentConfig, event.user);
         const mapped = state.threads[check.sessionKey];
@@ -963,11 +988,28 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
 
         let threadId: ThreadId | null = null;
         let runId: string | null = null;
+        let recordedRunCount = 1;
 
         if (mapped) {
           const existingThreadId = ThreadId.make(mapped.threadId);
+          const existingRecords = yield* projectionStore
+            .getThreadRecords(existingThreadId, ["runs"])
+            .pipe(Effect.orElseSucceed(() => null));
+          const currentRunCount = existingRecords ? existingRecords.runs.length : null;
+          const existingCursor =
+            state.threadCursors[`${existingThreadId}:${check.threadKey}`] ?? null;
+          const historySelection = yield* resolveHistorySelectionSenders(
+            currentConfig,
+            selectSlackThreadHistoryForTurn(rawThreadMessages, event.ts, {
+              cursor: existingCursor,
+              currentRunCount,
+              nowMs,
+            }),
+          );
           const { selected: followUpImages, omittedCount: followUpOmitted } =
-            selectSlackImagesToDownload(event, history, { isExistingSession: isReturningThread });
+            selectSlackImagesToDownload(event, historySelection.messages, {
+              isExistingSession: isReturningThread && historySelection.mode === "full",
+            });
           const downloadedFollowUp = yield* downloadSlackImagesToAttachments(
             currentConfig,
             existingThreadId,
@@ -990,7 +1032,9 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
           const prompt = buildSlackRelayPrompt(payload, {
             channelName,
             senderName,
-            threadMessages: history,
+            threadMessages: historySelection.messages,
+            historyMode: historySelection.mode,
+            rootAnchor: historySelection.rootAnchor,
             customPrompt: currentConfig.customPrompt,
             promptFile,
             attachedImageNames: downloadedFollowUp.attachments.map((att) => att.name),
@@ -1017,6 +1061,7 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
           if (Option.isSome(sendRes)) {
             threadId = existingThreadId;
             runId = sendRes.value.run?.id ?? null;
+            recordedRunCount = (currentRunCount ?? 0) + 1;
           } else {
             yield* Effect.forEach(
               downloadedFollowUp.savedPaths,
@@ -1032,8 +1077,14 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
           const { projectId, workspaceRoot, modelSelection } =
             yield* resolveTargetProjectAndModel();
           const newThreadId = ThreadId.make(yield* randomUuidV4);
+          const historySelection = yield* resolveHistorySelectionSenders(
+            currentConfig,
+            selectSlackThreadHistoryForTurn(rawThreadMessages, event.ts, { nowMs }),
+          );
           const { selected: initialImages, omittedCount: initialOmitted } =
-            selectSlackImagesToDownload(event, history, { isExistingSession: false });
+            selectSlackImagesToDownload(event, historySelection.messages, {
+              isExistingSession: false,
+            });
           const downloadedInitial = yield* downloadSlackImagesToAttachments(
             currentConfig,
             newThreadId,
@@ -1049,7 +1100,9 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
           const prompt = buildSlackRelayPrompt(payload, {
             channelName,
             senderName,
-            threadMessages: history,
+            threadMessages: historySelection.messages,
+            historyMode: historySelection.mode,
+            rootAnchor: historySelection.rootAnchor,
             customPrompt: currentConfig.customPrompt,
             promptFile,
             attachedImageNames: downloadedInitial.attachments.map((att) => att.name),
@@ -1087,6 +1140,7 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
 
           threadId = launched.threadId;
           runId = launched.projection.runs.at(-1)?.id ?? null;
+          recordedRunCount = Math.max(1, launched.projection.runs.length);
           state.threads[check.sessionKey] = { threadId, projectId };
           yield* persistState();
 
@@ -1109,8 +1163,16 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         const seenThreadKey = `${threadId}:${check.threadKey}`;
         if (!state.seenThreads.includes(seenThreadKey)) {
           state.seenThreads.push(seenThreadKey);
-          yield* persistState();
         }
+        const prevOwnReplyTs = state.threadCursors[seenThreadKey]?.ownReplyTs ?? [];
+        delete state.threadCursors[seenThreadKey];
+        state.threadCursors[seenThreadKey] = {
+          lastSeenTs: event.ts,
+          lastSeenAtMs: nowMs,
+          lastRunCount: recordedRunCount,
+          ...(prevOwnReplyTs.length > 0 ? { ownReplyTs: prevOwnReplyTs.slice(-5) } : {}),
+        };
+        yield* persistState();
 
         const replyBody = yield* waitForAssistantReply(threadId, runId);
         if (stopped || !config.enabled) {
@@ -1134,11 +1196,25 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
             });
           }
           yield* verifyUserTokenOwnership(config);
-          yield* slackApiCall("chat.postMessage", config.userToken, {
+          const postRes = yield* slackApiCall("chat.postMessage", config.userToken, {
             channel: event.channel,
             thread_ts: replyThreadTs,
             text: formatted,
           });
+          const postedTs = typeof postRes.ts === "string" ? postRes.ts.trim() : "";
+          const prevCursor = state.threadCursors[seenThreadKey];
+          if (postedTs && prevCursor) {
+            const nextOwnReplies = [
+              ...(prevCursor.ownReplyTs ?? []).filter((ts) => ts !== postedTs),
+              postedTs,
+            ].slice(-5);
+            delete state.threadCursors[seenThreadKey];
+            state.threadCursors[seenThreadKey] = {
+              ...prevCursor,
+              ownReplyTs: nextOwnReplies,
+            };
+            yield* persistState();
+          }
           yield* tryReaction("remove", config, event.channel, event.ts, "eyes");
           yield* tryReaction("add", config, event.channel, event.ts, "white_check_mark");
         } else {
@@ -1318,11 +1394,27 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
           typeof overrideText === "string" && overrideText.trim().length > 0
             ? overrideText.trim()
             : item.replyText;
-        yield* slackApiCall("chat.postMessage", config.userToken, {
+        const postRes = yield* slackApiCall("chat.postMessage", config.userToken, {
           channel: item.channel,
           thread_ts: item.threadTs,
           text: textToSend,
         });
+        const postedTs = typeof postRes.ts === "string" ? postRes.ts.trim() : "";
+        if (postedTs && item.t3ThreadId) {
+          const cursorKey = `${item.t3ThreadId}:${item.channel}:${item.threadTs}`;
+          const prevCursor = state.threadCursors[cursorKey];
+          if (prevCursor) {
+            const nextOwnReplies = [
+              ...(prevCursor.ownReplyTs ?? []).filter((ts) => ts !== postedTs),
+              postedTs,
+            ].slice(-5);
+            delete state.threadCursors[cursorKey];
+            state.threadCursors[cursorKey] = {
+              ...prevCursor,
+              ownReplyTs: nextOwnReplies,
+            };
+          }
+        }
         yield* tryReaction("remove", config, item.channel, item.ts, "eyes");
         yield* tryReaction("add", config, item.channel, item.ts, "white_check_mark");
         state.pending.splice(idx, 1);

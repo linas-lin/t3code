@@ -673,6 +673,72 @@ export function selectSlackImagesToDownload(
   return { selected: [...historySelected, ...selectedCurrent], omittedCount };
 }
 
+const SLACK_RELAY_INCREMENTAL_MAX_RUN_GAP = 4;
+const SLACK_RELAY_INCREMENTAL_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+const SLACK_RELAY_ROOT_ANCHOR_MAX_CHARS = 200;
+
+export interface SlackThreadHistoryCursor {
+  readonly lastSeenTs: string;
+  readonly lastSeenAtMs: number;
+  readonly lastRunCount: number;
+  readonly ownReplyTs?: ReadonlyArray<string>;
+}
+
+export interface SlackThreadRootAnchor {
+  readonly ts?: string;
+  readonly user?: string;
+  readonly senderLabel?: string;
+  readonly text: string;
+}
+
+export interface SlackThreadHistorySelection {
+  readonly mode: "full" | "incremental";
+  readonly messages: ReadonlyArray<SlackThreadHistoryItem>;
+  readonly rootAnchor: SlackThreadRootAnchor | null;
+  readonly fallbackReason?:
+    | "no_cursor"
+    | "invalid_cursor"
+    | "run_gap"
+    | "age_expired"
+    | "too_many_new_messages";
+}
+
+export function compareSlackTs(a: string | undefined, b: string | undefined): number {
+  const parse = (raw: string | undefined): readonly [number, number] => {
+    const trimmed = String(raw ?? "").trim();
+    if (!trimmed) return [0, 0];
+    const [secStr = "0", microStr = "0"] = trimmed.split(".");
+    const sec = Number.parseInt(secStr, 10);
+    const micro = Number.parseInt(microStr.padEnd(6, "0").slice(0, 6), 10);
+    return [Number.isFinite(sec) ? sec : 0, Number.isFinite(micro) ? micro : 0];
+  };
+  const [aSec, aMicro] = parse(a);
+  const [bSec, bMicro] = parse(b);
+  if (aSec !== bSec) return aSec - bSec;
+  return aMicro - bMicro;
+}
+
+function buildRootAnchor(
+  root: SlackThreadHistoryItem | undefined,
+  maxChars = SLACK_RELAY_ROOT_ANCHOR_MAX_CHARS,
+): SlackThreadRootAnchor | null {
+  if (!root) return null;
+  const cleaned = String(root.text ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const imgs = extractSlackImageFiles(root.files);
+  const imgSuffix = imgs.length > 0 ? ` [附图片: ${imgs.map((f) => f.name).join(", ")}]` : "";
+  const body = cleaned.length > maxChars ? `${cleaned.slice(0, maxChars).trimEnd()}…` : cleaned;
+  const text = `${body}${imgSuffix}`.trim();
+  if (!text) return null;
+  return {
+    ...(root.ts ? { ts: root.ts } : {}),
+    ...(root.user ? { user: root.user } : {}),
+    ...(root.senderLabel ? { senderLabel: root.senderLabel } : {}),
+    text,
+  };
+}
+
 export function selectSlackThreadHistory(
   messages: ReadonlyArray<SlackThreadHistoryItem>,
   currentTs: string,
@@ -692,6 +758,114 @@ export function selectSlackThreadHistory(
     },
     ...filtered.slice(-maxRecent),
   ];
+}
+
+export function selectSlackThreadHistoryForTurn(
+  messages: ReadonlyArray<SlackThreadHistoryItem>,
+  currentTs: string,
+  options: {
+    readonly cursor?: SlackThreadHistoryCursor | null;
+    readonly currentRunCount?: number | null;
+    readonly nowMs?: number;
+    readonly maxRecent?: number;
+    readonly maxRunGap?: number;
+    readonly maxAgeMs?: number;
+    readonly rootAnchorMaxChars?: number;
+  } = {},
+): SlackThreadHistorySelection {
+  const maxRecent = options.maxRecent ?? 25;
+  const maxRunGap = options.maxRunGap ?? SLACK_RELAY_INCREMENTAL_MAX_RUN_GAP;
+  const maxAgeMs = options.maxAgeMs ?? SLACK_RELAY_INCREMENTAL_MAX_AGE_MS;
+  const rootAnchorMaxChars = options.rootAnchorMaxChars ?? SLACK_RELAY_ROOT_ANCHOR_MAX_CHARS;
+  const filtered = messages.filter(
+    (item) => Boolean(item.ts) && compareSlackTs(item.ts, currentTs) < 0,
+  );
+
+  if (filtered.length === 0) {
+    return {
+      mode: options.cursor?.lastSeenTs ? "incremental" : "full",
+      messages: [],
+      rootAnchor: null,
+    };
+  }
+
+  const cursor = options.cursor;
+  if (!cursor || !cursor.lastSeenTs) {
+    return {
+      mode: "full",
+      messages: selectSlackThreadHistory(filtered, currentTs, maxRecent),
+      rootAnchor: null,
+      fallbackReason: "no_cursor",
+    };
+  }
+
+  if (!Number.isFinite(cursor.lastSeenAtMs)) {
+    return {
+      mode: "full",
+      messages: selectSlackThreadHistory(filtered, currentTs, maxRecent),
+      rootAnchor: null,
+      fallbackReason: "invalid_cursor",
+    };
+  }
+
+  if (typeof options.currentRunCount === "number" && Number.isFinite(options.currentRunCount)) {
+    if (!Number.isFinite(cursor.lastRunCount) || options.currentRunCount < cursor.lastRunCount) {
+      return {
+        mode: "full",
+        messages: selectSlackThreadHistory(filtered, currentTs, maxRecent),
+        rootAnchor: null,
+        fallbackReason: "invalid_cursor",
+      };
+    }
+    const runGap = options.currentRunCount - cursor.lastRunCount;
+    if (runGap > maxRunGap) {
+      return {
+        mode: "full",
+        messages: selectSlackThreadHistory(filtered, currentTs, maxRecent),
+        rootAnchor: null,
+        fallbackReason: "run_gap",
+      };
+    }
+  }
+
+  if (
+    typeof options.nowMs === "number" &&
+    Number.isFinite(options.nowMs) &&
+    options.nowMs - cursor.lastSeenAtMs > maxAgeMs
+  ) {
+    return {
+      mode: "full",
+      messages: selectSlackThreadHistory(filtered, currentTs, maxRecent),
+      rootAnchor: null,
+      fallbackReason: "age_expired",
+    };
+  }
+
+  const ownReplySet = new Set(cursor.ownReplyTs ?? []);
+  const newMessages = filtered.filter(
+    (item) =>
+      Boolean(item.ts) &&
+      compareSlackTs(item.ts, cursor.lastSeenTs) > 0 &&
+      !ownReplySet.has(item.ts!),
+  );
+  if (newMessages.length > maxRecent) {
+    return {
+      mode: "full",
+      messages: selectSlackThreadHistory(filtered, currentTs, maxRecent),
+      rootAnchor: null,
+      fallbackReason: "too_many_new_messages",
+    };
+  }
+
+  const root = filtered[0];
+  const rootIncludedInDelta = Boolean(root && newMessages.some((item) => item.ts === root.ts));
+  const rootAnchor = rootIncludedInDelta ? null : buildRootAnchor(root, rootAnchorMaxChars);
+
+  return {
+    mode: "incremental",
+    messages: newMessages,
+    rootAnchor,
+  };
 }
 
 export function isSlackNoReplyResponse(text: string): boolean {
@@ -718,6 +892,8 @@ export interface SlackRelayPromptOptions {
   readonly channelName?: string | null;
   readonly senderName?: string | null;
   readonly threadMessages?: ReadonlyArray<SlackThreadHistoryItem>;
+  readonly historyMode?: "full" | "incremental";
+  readonly rootAnchor?: SlackThreadRootAnchor | null;
   readonly customPrompt?: string;
   readonly promptFile?: {
     readonly filePath: string;
@@ -880,8 +1056,22 @@ export function buildSlackRelayPrompt(
     );
   }
 
-  if (threadMessages.length > 0) {
-    lines.push("", "同 thread 历史消息（仅供参考）：", "<slack_thread_history>");
+  const historyMode = options.historyMode ?? "full";
+  const rootAnchor = options.rootAnchor ?? null;
+  const hasRootAnchor = historyMode === "incremental" && rootAnchor !== null;
+
+  if (hasRootAnchor || threadMessages.length > 0) {
+    const historyHeading =
+      historyMode === "incremental"
+        ? threadMessages.length > 0
+          ? "同 thread 新增消息（自上次回复后，仅供参考）："
+          : "同 thread 根消息锚点（自上次回复后无其他新增消息，仅供防跑偏）："
+        : "同 thread 历史消息（仅供参考）：";
+    lines.push("", historyHeading, "<slack_thread_history>");
+    if (hasRootAnchor) {
+      const anchorAuthor = rootAnchor.senderLabel || rootAnchor.user || "unknown";
+      lines.push(`- [根消息锚点] ${anchorAuthor}: ${rootAnchor.text}`);
+    }
     for (const msg of threadMessages) {
       const author = msg.senderLabel || msg.user || "unknown";
       const imgs = extractSlackImageFiles(msg.files);

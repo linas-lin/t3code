@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildSlackRelayPrompt,
+  compareSlackTs,
   DEFAULT_SLACK_RELAY_CONFIG,
   extractSlackImageFiles,
   formatSlackReplyText,
@@ -17,6 +18,7 @@ import {
   resolveSlackSessionScope,
   selectSlackImagesToDownload,
   selectSlackThreadHistory,
+  selectSlackThreadHistoryForTurn,
   shouldProcessSlackRelayEvent,
   toPublicSlackRelayConfig,
 } from "./slackRelayCore.ts";
@@ -475,5 +477,160 @@ describe("slackRelayCore", () => {
     expect(sharedPrompt).toContain("按天共享会话");
     expect(sharedPrompt).toContain("Thread ts：1700000005.000001");
     expect(sharedPrompt).toContain("新 thread（与此前其他 thread 话题相互独立）");
+  });
+
+  it("selects incremental thread history with root anchor and falls back to full when stale or interrupted", () => {
+    expect(compareSlackTs("1700000001.000010", "1700000001.000002")).toBeGreaterThan(0);
+    expect(compareSlackTs("1700000002.000001", "1700000001.999999")).toBeGreaterThan(0);
+
+    const threadMessages = [
+      {
+        ts: "1700000001.000001",
+        user: "U200",
+        senderLabel: "Alice",
+        text: "原始问题：prod 下单报错 500",
+      },
+      { ts: "1700000001.000002", user: "U100", senderLabel: "Bot", text: "已查到原因 A" },
+      { ts: "1700000001.000003", user: "U201", senderLabel: "Bob", text: "补充一个 order_id=123" },
+      { ts: "1700000001.000004", user: "U200", senderLabel: "Alice", text: "<@U100> 再看下这个单" },
+    ];
+    const nowMs = 1_700_000_000_000;
+
+    // 1. No cursor -> full window
+    const initial = selectSlackThreadHistoryForTurn(threadMessages, "1700000001.000004", {
+      nowMs,
+    });
+    expect(initial.mode).toBe("full");
+    expect(initial.fallbackReason).toBe("no_cursor");
+    expect(initial.rootAnchor).toBeNull();
+    expect(initial.messages.map((m) => m.ts)).toEqual([
+      "1700000001.000001",
+      "1700000001.000002",
+      "1700000001.000003",
+    ]);
+
+    // 2. Continuous follow-up -> incremental delta + root anchor inside <slack_thread_history>
+    // Also verifies human messages sent before bot's reply (ts=1.000003) are preserved while ownReplyTs (ts=1.000004) is excluded
+    const messagesWithThinkingWindow = [
+      {
+        ts: "1700000001.000001",
+        user: "U200",
+        senderLabel: "Alice",
+        text: "原始问题：prod 下单报错 500",
+      },
+      { ts: "1700000001.000002", user: "U200", senderLabel: "Alice", text: "<@U100> 查一下" },
+      { ts: "1700000001.000003", user: "U201", senderLabel: "Bob", text: "补充一个 order_id=123" },
+      { ts: "1700000001.000004", user: "U100", senderLabel: "Bot", text: "已查到原因 A" },
+      { ts: "1700000001.000005", user: "U200", senderLabel: "Alice", text: "<@U100> 再看下这个单" },
+      { ts: "1700000001.000006", user: "U202", senderLabel: "Carol", text: "未来排队消息" },
+    ];
+    const incremental = selectSlackThreadHistoryForTurn(
+      messagesWithThinkingWindow,
+      "1700000001.000005",
+      {
+        cursor: {
+          lastSeenTs: "1700000001.000002",
+          lastSeenAtMs: nowMs - 5 * 60_000,
+          lastRunCount: 2,
+          ownReplyTs: ["1700000001.000004"],
+        },
+        currentRunCount: 4,
+        nowMs,
+      },
+    );
+    expect(incremental.mode).toBe("incremental");
+    expect(incremental.messages.map((m) => m.ts)).toEqual(["1700000001.000003"]);
+    expect(incremental.rootAnchor).toEqual({
+      ts: "1700000001.000001",
+      user: "U200",
+      senderLabel: "Alice",
+      text: "原始问题：prod 下单报错 500",
+    });
+
+    const incPrompt = buildSlackRelayPrompt(
+      {
+        type: "slack_mention",
+        event: {
+          channel: "C001",
+          ts: "1700000001.000005",
+          thread_ts: "1700000001.000001",
+          user: "U200",
+          text: "<@U100> 再看下这个单",
+        },
+      },
+      {
+        channelName: "ba-dev",
+        senderName: "Alice",
+        threadMessages: incremental.messages,
+        historyMode: incremental.mode,
+        rootAnchor: incremental.rootAnchor,
+      },
+    );
+    expect(incPrompt).toContain(
+      "<slack_thread_history>\n- [根消息锚点] Alice: 原始问题：prod 下单报错 500",
+    );
+    expect(incPrompt).toContain("同 thread 新增消息（自上次回复后，仅供参考）：");
+    expect(incPrompt).toContain("补充一个 order_id=123");
+    expect(incPrompt).not.toContain("已查到原因 A");
+    expect(incPrompt).not.toContain("未来排队消息");
+
+    // 3. Immediate follow-up with no intermediate messages -> root anchor still wrapped inside <slack_thread_history>
+    const emptyDelta = selectSlackThreadHistoryForTurn(
+      [threadMessages[0]!, threadMessages[1]!, threadMessages[3]!],
+      "1700000001.000004",
+      {
+        cursor: {
+          lastSeenTs: "1700000001.000002",
+          lastSeenAtMs: nowMs - 60_000,
+          lastRunCount: 2,
+        },
+        currentRunCount: 2,
+        nowMs,
+      },
+    );
+    expect(emptyDelta.mode).toBe("incremental");
+    expect(emptyDelta.messages).toEqual([]);
+    expect(emptyDelta.rootAnchor?.text).toBe("原始问题：prod 下单报错 500");
+
+    // 4. Too many intervening runs in shared session -> fallback to full
+    const runGapFallback = selectSlackThreadHistoryForTurn(threadMessages, "1700000001.000004", {
+      cursor: {
+        lastSeenTs: "1700000001.000002",
+        lastSeenAtMs: nowMs - 10 * 60_000,
+        lastRunCount: 1,
+      },
+      currentRunCount: 6,
+      nowMs,
+    });
+    expect(runGapFallback.mode).toBe("full");
+    expect(runGapFallback.fallbackReason).toBe("run_gap");
+    expect(runGapFallback.messages.length).toBe(3);
+
+    // 5. Too much time elapsed -> fallback to full
+    const ageFallback = selectSlackThreadHistoryForTurn(threadMessages, "1700000001.000004", {
+      cursor: {
+        lastSeenTs: "1700000001.000002",
+        lastSeenAtMs: nowMs - 3 * 60 * 60_000,
+        lastRunCount: 2,
+      },
+      currentRunCount: 2,
+      nowMs,
+    });
+    expect(ageFallback.mode).toBe("full");
+    expect(ageFallback.fallbackReason).toBe("age_expired");
+    expect(ageFallback.messages.length).toBe(3);
+
+    // 6. Invalid cursor (currentRunCount < lastRunCount) -> fail-safe fallback to full
+    const invalidFallback = selectSlackThreadHistoryForTurn(threadMessages, "1700000001.000004", {
+      cursor: {
+        lastSeenTs: "1700000001.000002",
+        lastSeenAtMs: nowMs - 60_000,
+        lastRunCount: 5,
+      },
+      currentRunCount: 2,
+      nowMs,
+    });
+    expect(invalidFallback.mode).toBe("full");
+    expect(invalidFallback.fallbackReason).toBe("invalid_cursor");
   });
 });
