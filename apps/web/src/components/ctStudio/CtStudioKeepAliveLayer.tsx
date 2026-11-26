@@ -840,14 +840,17 @@ export const CtStudioKeepAliveLayer = memo(function CtStudioKeepAliveLayer() {
 
       switch (message.type) {
         case "ct-studio:ready": {
+          const alreadyConnected = useCtStudioStore.getState().connected;
           setConnected(true);
           const host = getCurrentHostCatalog();
           lastCatalogDigestRef.current = JSON.stringify(host);
-          postToCtStudioFrame(iframeRef.current, baseUrl, {
-            type: "t3-ct-studio:hello",
-            version: 1,
-            host,
-          });
+          postToCtStudioFrame(
+            iframeRef.current,
+            baseUrl,
+            alreadyConnected
+              ? { type: "t3-ct-studio:catalog", host }
+              : { type: "t3-ct-studio:hello", version: 1, host },
+          );
           const threads = getCurrentHostThreads();
           lastThreadsDigestRef.current = JSON.stringify(threads);
           postToCtStudioFrame(iframeRef.current, baseUrl, {
