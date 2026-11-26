@@ -41,6 +41,8 @@ import {
 } from "./Adapters/ClaudeAdapterV2.ts";
 import { withTurnStartReservation, withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
+import * as PersonalMemoryService from "../personal/PersonalMemoryService.ts";
+import { resolveTurnPersonalContext } from "../personal/personalTurnContext.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
@@ -324,6 +326,7 @@ export const layer: Layer.Layer<
     const restoreMissingWorktree = yield* makeRestoreMissingWorktree;
     const worktreeRestore = yield* ThreadWorktreeRestore;
     const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
+    const personalMemory = yield* Effect.serviceOption(PersonalMemoryService.PersonalMemoryService);
 
     // Build draining callbacks outside startup scope so they cannot retain full thread history.
     const makeRunControls = (input: {
@@ -1430,6 +1433,18 @@ export const layer: Layer.Layer<
       let resumedHandoffContext: ReturnType<typeof handoffContextForThread> | undefined;
       let portableForkFallback: OrchestrationV2ContextHandoff | undefined;
       let recoveryTurnItem: OrchestrationV2TurnItem | undefined;
+      // Dispatch prepares no import handoff for a session import: its history is in the native session.
+      const importedNativeSession =
+        providerThread.nativeThreadRef !== null &&
+        projection.thread.historyOrigin === "v1_import" &&
+        !projection.providerTurns.some(
+          (turn) => turn.providerThreadId === providerThread.id && isDeliveredProviderTurn(turn),
+        ) &&
+        !projection.contextHandoffs.some(
+          (handoff) =>
+            handoff.toProviderThreadId === providerThread.id &&
+            handoff.strategy === "manual_context",
+        );
       const loadedProviderThread = yield* Effect.gen(function* () {
         if (nativeForkTransfer !== undefined) {
           let sourceProjection = yield* projectionStore.getThreadRecords(
@@ -1721,17 +1736,6 @@ export const layer: Layer.Layer<
         const nativeSessionLacksKeptTurns =
           !session.providerSession.capabilities.checkpointing.providerCanRollbackConversation &&
           nativeSessionMissesKeptTurns(projection, providerThread, run);
-        // Dispatch prepares no import handoff for a session import: its history is in the native session.
-        const importedNativeSession =
-          projection.thread.historyOrigin === "v1_import" &&
-          !projection.providerTurns.some(
-            (turn) => turn.providerThreadId === providerThread.id && isDeliveredProviderTurn(turn),
-          ) &&
-          !projection.contextHandoffs.some(
-            (handoff) =>
-              handoff.toProviderThreadId === providerThread.id &&
-              handoff.strategy === "manual_context",
-          );
         const resumed = yield* Effect.result(
           uncertainDelivery || nativeSessionLacksKeptTurns || rejectedHistory
             ? Effect.fail(
@@ -1967,13 +1971,32 @@ export const layer: Layer.Layer<
         budget,
       } = handoffContext;
       const retryHandoff = resumedRetryHandoff ?? (yield* prepareRetryHandoff(handoffContext));
+      const personalContext = yield* resolveTurnPersonalContext({
+        personalMemory,
+        projects,
+        pathService: path,
+        nowIso: DateTime.formatIso(now),
+        projection,
+        loadedNativeThreadId: loadedProviderThread.nativeThreadRef?.nativeId ?? null,
+        sameNativeThread,
+        importedNativeSession: importedNativeSession && sameNativeThread,
+        acceptedAttempts,
+        currentRunOrdinal: run.ordinal,
+        providerMessage,
+        slashCommand,
+        manualResume,
+        unsentResumeMessage,
+        nativeForkTransfer,
+        portableForkFallback,
+      });
       const carriesPendingContext =
         effectiveHandoffs.length > 0 ||
         retryHandoff.handoffs.length > 0 ||
         retryHandoff.attachments.length > 0 ||
         sideChatHandoff !== undefined ||
         restartNote !== "" ||
-        noteContinuation;
+        noteContinuation ||
+        personalContext !== "";
       // Pending context turns the resume into a prompted turn, which needs no native resume.
       if (
         manualResume &&
@@ -2170,11 +2193,19 @@ export const layer: Layer.Layer<
       const retryHandoffIds = new Set(retryHandoff.handoffs.map((handoff) => handoff.id));
       const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
         function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
+          const personalContextTokens =
+            compact || slashCommand || personalContext === ""
+              ? 0
+              : estimateTextTokens(personalContext);
+          const deliveryBudget =
+            personalContextTokens === 0
+              ? budget
+              : Effect.map(budget, (available) => Math.max(0, available - personalContextTokens));
           const delivery = yield* deliverContextHandoffs({
             handoffs: [...effectiveHandoffs, ...retryHandoff.handoffs],
             deferInline: compact || slashCommand,
             providerThread: runningProviderThread,
-            budget,
+            budget: deliveryBudget,
             alreadyDeliveredItemIds: deliveredItemIds,
             ...(session.injectHistory === undefined
               ? {}
@@ -2203,7 +2234,12 @@ export const layer: Layer.Layer<
             ),
             ...(sideChatContext === "" || sideChatHandoff === undefined ? [] : [sideChatHandoff]),
           ];
-          const context = [delivery.context, sideChatContext, restartNote]
+          const context = [
+            compact || slashCommand ? "" : personalContext,
+            delivery.context,
+            sideChatContext,
+            restartNote,
+          ]
             .filter((part) => part !== "")
             .join("\n\n");
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;

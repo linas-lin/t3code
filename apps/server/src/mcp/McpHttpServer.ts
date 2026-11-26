@@ -71,6 +71,7 @@ import * as EnvironmentHandlers from "./toolkits/environment/handlers.ts";
 import { ThemeToolkit } from "./toolkits/theme/tools.ts";
 import * as ThemeHandlers from "./toolkits/theme/handlers.ts";
 import { CtSlackToolkit, layerCtSlackHandlers } from "../ctStudio/slackRelayMcp.ts";
+import { PersonalToolkit, layerPersonalHandlers } from "../personal/personalMcp.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import * as ProjectHandlers from "./toolkits/project/handlers.ts";
 import { AttachmentToolkit } from "./toolkits/attachment/tools.ts";
@@ -1439,6 +1440,7 @@ const layerThemeToolkit = toolkitRegistration(ThemeToolkit, ThemeHandlers.layer)
 );
 
 const layerCtSlackToolkit = toolkitRegistration(CtSlackToolkit, layerCtSlackHandlers);
+export const layerPersonalToolkit = toolkitRegistration(PersonalToolkit, layerPersonalHandlers);
 
 export const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer);
 
@@ -1521,6 +1523,7 @@ export const layerTools = Layer.mergeAll(
   layerEnvironmentToolkit,
   layerThemeToolkit,
   layerCtSlackToolkit,
+  layerPersonalToolkit,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,

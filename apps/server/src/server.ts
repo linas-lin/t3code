@@ -101,6 +101,8 @@ import * as PeerForwarding from "./peer/PeerForwarding.ts";
 import * as RemoteDelegation from "./peer/RemoteDelegation.ts";
 import * as SlackRelayHttp from "./ctStudio/slackRelayHttp.ts";
 import * as SlackRelayService from "./ctStudio/SlackRelayService.ts";
+import * as PersonalMemoryService from "./personal/PersonalMemoryService.ts";
+import * as PersonalReflectionService from "./personal/PersonalReflectionService.ts";
 import * as PeerClientPairing from "./peer/PeerClientPairing.ts";
 import * as PeerClientPairingHttp from "./peer/http.ts";
 import * as PeerLinkRequests from "./peer/PeerLinkRequests.ts";
@@ -786,8 +788,11 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ProviderInstallation.layer,
   ReplayMarkers.layer,
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
+  PersonalReflectionService.layer,
 ).pipe(
-  Layer.provideMerge(layerOrchestrationApplication),
+  Layer.provideMerge(
+    layerOrchestrationApplication.pipe(Layer.provideMerge(PersonalMemoryService.layer)),
+  ),
   // One hub, which the feeders above and the workflow store inside the runtime publish to.
   Layer.provideMerge(MilestoneHub.layer),
   Layer.provideMerge(Layer.merge(layerTaskFolders, LayoutCommandApprovalWrites.layer)),
