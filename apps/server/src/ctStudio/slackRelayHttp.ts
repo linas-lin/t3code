@@ -51,7 +51,10 @@ export const layer = Layer.unwrap(
       ROUTE_PREFIX,
       Effect.gen(function* () {
         yield* requireOperateSession;
-        const snapshot = yield* service.getSnapshot();
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const parsedUrl = new URL(request.url, "http://127.0.0.1");
+        const lite = parsedUrl.searchParams.get("lite") === "1";
+        const snapshot = yield* service.getSnapshot(lite ? { includeDiscovery: false } : undefined);
         return jsonNoStore(snapshot);
       }),
     );

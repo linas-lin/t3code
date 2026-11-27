@@ -158,8 +158,10 @@ async function requestSlackRelay<T>(
   return payload;
 }
 
-export function fetchSlackRelaySnapshot(): Promise<SlackRelaySnapshot> {
-  return requestSlackRelay<SlackRelaySnapshot>("");
+export function fetchSlackRelaySnapshot(options?: {
+  readonly lite?: boolean;
+}): Promise<SlackRelaySnapshot> {
+  return requestSlackRelay<SlackRelaySnapshot>(options?.lite ? "?lite=1" : "");
 }
 
 export function updateSlackRelayConfig(patch: SlackRelayConfigPatch): Promise<SlackRelaySnapshot> {

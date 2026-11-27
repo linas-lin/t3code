@@ -218,8 +218,12 @@ export interface SlackPostMessageResult {
   readonly text: string;
 }
 
+export interface SlackRelaySnapshotOptions {
+  readonly includeDiscovery?: boolean;
+}
+
 export interface SlackRelayServiceShape {
-  readonly getSnapshot: () => Effect.Effect<SlackRelaySnapshot>;
+  readonly getSnapshot: (options?: SlackRelaySnapshotOptions) => Effect.Effect<SlackRelaySnapshot>;
   readonly updateConfig: (patch: SlackRelayConfigPatch) => Effect.Effect<SlackRelaySnapshot>;
   readonly reconnect: () => Effect.Effect<SlackRelaySnapshot>;
   readonly sendDraft: (
@@ -1298,13 +1302,35 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
         yield* connectSocket();
       }
 
+      const SKILLS_CACHE_TTL_MS = 30_000;
+      let cachedSkills: {
+        readonly workspaceRoot: string;
+        readonly expiresAt: number;
+        readonly options: ReadonlyArray<SlackRelaySkillOption>;
+      } | null = null;
+
       const scanProjectSkills = Effect.fn("SlackRelayService.scanProjectSkills")(function* (
         workspaceRoot: string | null,
       ) {
         if (!workspaceRoot) return [] as ReadonlyArray<SlackRelaySkillOption>;
+        const now = Date.now();
+        if (
+          cachedSkills &&
+          cachedSkills.workspaceRoot === workspaceRoot &&
+          now < cachedSkills.expiresAt
+        ) {
+          return cachedSkills.options;
+        }
         const skillsRoot = path.join(workspaceRoot, ".agents", "skills");
         const exists = yield* fs.exists(skillsRoot).pipe(Effect.orElseSucceed(() => false));
-        if (!exists) return [] as ReadonlyArray<SlackRelaySkillOption>;
+        if (!exists) {
+          cachedSkills = {
+            workspaceRoot,
+            expiresAt: now + SKILLS_CACHE_TTL_MS,
+            options: [],
+          };
+          return [] as ReadonlyArray<SlackRelaySkillOption>;
+        }
         const entries = yield* fs
           .readDirectory(skillsRoot)
           .pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<string>));
@@ -1317,17 +1343,34 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
             options.push({ name, path: `.agents/skills/${name}` });
           }
         }
+        cachedSkills = {
+          workspaceRoot,
+          expiresAt: now + SKILLS_CACHE_TTL_MS,
+          options,
+        };
         return options;
       });
 
-      const buildSnapshot = Effect.fn("SlackRelayService.buildSnapshot")(function* () {
-        const shells = yield* projectService
-          .listShells()
-          .pipe(Effect.orElseSucceed(() => [] as const));
-        const targetShell =
-          (config.projectId ? shells.find((p) => p.id === config.projectId) : undefined) ??
-          shells[0];
-        const skills = yield* scanProjectSkills(targetShell?.workspaceRoot ?? null);
+      const buildSnapshot = Effect.fn("SlackRelayService.buildSnapshot")(function* (
+        options?: SlackRelaySnapshotOptions,
+      ) {
+        const includeDiscovery = options?.includeDiscovery !== false;
+        let projects: ReadonlyArray<SlackRelayProjectOption> = [];
+        let skills: ReadonlyArray<SlackRelaySkillOption> = [];
+        if (includeDiscovery) {
+          const shells = yield* projectService
+            .listShells()
+            .pipe(Effect.orElseSucceed(() => [] as const));
+          const targetShell =
+            (config.projectId ? shells.find((p) => p.id === config.projectId) : undefined) ??
+            shells[0];
+          skills = yield* scanProjectSkills(targetShell?.workspaceRoot ?? null);
+          projects = shells.map((project) => ({
+            id: project.id,
+            title: project.title,
+            workspaceRoot: project.workspaceRoot,
+          }));
+        }
         return {
           config: toPublicSlackRelayConfig(config),
           status: {
@@ -1338,17 +1381,15 @@ export class SlackRelayService extends Context.Service<SlackRelayService, SlackR
             mappedThreads: Object.keys(state.threads).length,
           },
           pending: [...state.pending],
-          projects: shells.map((project) => ({
-            id: project.id,
-            title: project.title,
-            workspaceRoot: project.workspaceRoot,
-          })),
+          projects,
           skills,
         } satisfies SlackRelaySnapshot;
       });
 
-      const getSnapshot = Effect.fn("SlackRelayService.getSnapshot")(function* () {
-        return yield* buildSnapshot();
+      const getSnapshot = Effect.fn("SlackRelayService.getSnapshot")(function* (
+        options?: SlackRelaySnapshotOptions,
+      ) {
+        return yield* buildSnapshot(options);
       });
 
       const updateConfig = Effect.fn("SlackRelayService.updateConfig")(function* (

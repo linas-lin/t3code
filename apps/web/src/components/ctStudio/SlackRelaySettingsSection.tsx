@@ -238,26 +238,64 @@ export function SlackRelaySettingsSection() {
   useEffect(() => {
     if (!isRelayEnabled) return;
     const intervalMs = relayConnState === "connecting" ? 1200 : 5000;
-    const timer = window.setInterval(() => {
-      void fetchSlackRelaySnapshot()
-        .then((next) => {
-          setSnapshot((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  status: next.status,
-                  pending: next.pending,
-                  projects: next.projects,
-                  skills: next.skills,
-                }
-              : next,
-          );
-        })
-        .catch(() => {
-          // ignore transient poll error
-        });
-    }, intervalMs);
-    return () => window.clearInterval(timer);
+    let cancelled = false;
+    let inFlight = false;
+    let timer: number | null = null;
+
+    const poll = async () => {
+      if (cancelled || inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
+      try {
+        const next = await fetchSlackRelaySnapshot();
+        if (cancelled) return;
+        setSnapshot((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: next.status,
+                pending: next.pending,
+                projects: next.projects,
+                skills: next.skills,
+              }
+            : next,
+        );
+      } catch {
+        // ignore transient poll error
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const stopPolling = () => {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    };
+
+    const startPolling = () => {
+      if (cancelled || timer !== null || document.visibilityState === "hidden") return;
+      timer = window.setInterval(() => {
+        void poll();
+      }, intervalMs);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        stopPolling();
+      } else {
+        void poll();
+        startPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      cancelled = true;
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [isRelayEnabled, relayConnState]);
 
   const representative =

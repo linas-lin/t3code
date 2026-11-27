@@ -30,21 +30,60 @@ export function SlackRelayThreadDraftBar({ threadId }: { readonly threadId: stri
   useEffect(() => {
     if (!threadId) return;
     let cancelled = false;
-    const poll = () => {
-      void fetchSlackRelaySnapshot()
-        .then((snapshot) => {
-          if (cancelled) return;
-          setDrafts(snapshot.pending.filter((item) => item.t3ThreadId === threadId));
-        })
-        .catch(() => {
-          // Silently ignore when relay is unavailable
-        });
+    let inFlight = false;
+    let timer: number | null = null;
+
+    const stopPolling = () => {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
     };
-    poll();
-    const timer = window.setInterval(poll, 4000);
+
+    const startPolling = () => {
+      if (cancelled || timer !== null || document.visibilityState === "hidden") return;
+      timer = window.setInterval(() => {
+        void poll();
+      }, 4000);
+    };
+
+    const poll = async () => {
+      if (cancelled || inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
+      try {
+        const snapshot = await fetchSlackRelaySnapshot({ lite: true });
+        if (cancelled) return;
+        const threadDrafts = snapshot.pending.filter((item) => item.t3ThreadId === threadId);
+        setDrafts(threadDrafts);
+        if (snapshot.config.enabled || snapshot.pending.length > 0) {
+          startPolling();
+        } else {
+          stopPolling();
+        }
+      } catch {
+        // Silently ignore when relay is unavailable; pause background polling until visibility change
+        stopPolling();
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        stopPolling();
+      } else {
+        void poll();
+      }
+    };
+
+    if (document.visibilityState !== "hidden") {
+      void poll();
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [threadId]);
 

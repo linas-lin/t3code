@@ -37,8 +37,13 @@ function makeSnapshot(patch: SlackRelayConfigPatch = {}): SlackRelayService.Slac
 describe("slackRelayHttp", () => {
   it("allows cross-origin desktop POST config updates and preserves PUT compatibility", async () => {
     const receivedPatches: SlackRelayConfigPatch[] = [];
+    const receivedSnapshotOptions: Array<SlackRelayService.SlackRelaySnapshotOptions | undefined> =
+      [];
     const mockRelayLayer = Layer.succeed(SlackRelayService.SlackRelayService, {
-      getSnapshot: () => Effect.succeed(makeSnapshot()),
+      getSnapshot: (options) => {
+        receivedSnapshotOptions.push(options);
+        return Effect.succeed(makeSnapshot());
+      },
       updateConfig: (patch) => {
         receivedPatches.push(patch);
         return Effect.succeed(makeSnapshot(patch));
@@ -115,6 +120,27 @@ describe("slackRelayHttp", () => {
       const putJson = (await putResponse.json()) as SlackRelayService.SlackRelaySnapshot;
       expect(putJson.config.enabled).toBe(false);
 
+      const liteResponse = await handler(
+        new Request("http://127.0.0.1:3773/api/ct-studio/slack-relay?lite=1", {
+          method: "GET",
+          headers: {
+            authorization: "Bearer desktop-token",
+          },
+        }),
+      );
+      expect(liteResponse.status).toBe(200);
+
+      const fullResponse = await handler(
+        new Request("http://127.0.0.1:3773/api/ct-studio/slack-relay", {
+          method: "GET",
+          headers: {
+            authorization: "Bearer desktop-token",
+          },
+        }),
+      );
+      expect(fullResponse.status).toBe(200);
+
+      expect(receivedSnapshotOptions).toEqual([{ includeDiscovery: false }, undefined]);
       expect(receivedPatches).toEqual([{ enabled: true }, { enabled: false }]);
     } finally {
       await dispose();
