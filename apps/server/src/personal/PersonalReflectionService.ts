@@ -716,10 +716,30 @@ const make = Effect.fn("PersonalReflectionService.make")(function* (
     };
   });
 
+  const isPersonalAgentEnabled = Effect.fn("PersonalReflectionService.isPersonalAgentEnabled")(
+    function* () {
+      return yield* serverSettings.getSettings.pipe(
+        Effect.map((settings) => settings.enablePersonalAgent),
+        Effect.orElseSucceed(() => false),
+      );
+    },
+  );
+
   const executeReflection = Effect.fn("PersonalReflectionService.executeReflection")(function* (
     input?: ReflectNowInput,
   ): Effect.fn.Return<ReflectionRunResult, PersonalReflectionError> {
     const mode: ReflectionMode = input?.mode ?? "incremental";
+    if (!(yield* isPersonalAgentEnabled())) {
+      return {
+        mode,
+        skipped: true,
+        reason: "disabled",
+        scannedThreads: 0,
+        reflectedThreads: 0,
+        updatedFiles: [],
+        redactedCount: 0,
+      };
+    }
     const now = yield* DateTime.now;
     const nowIso = DateTime.formatIso(now);
     const snapshot = yield* memory
@@ -784,6 +804,9 @@ const make = Effect.fn("PersonalReflectionService.make")(function* (
     );
 
     const runScheduledTick = Effect.fn("PersonalReflectionService.scheduledTick")(function* () {
+      if (!(yield* isPersonalAgentEnabled())) {
+        return;
+      }
       const incrementalResult = yield* reflectIfIdle({ mode: "incremental" }).pipe(
         Effect.catch((cause) =>
           Effect.logWarning("Scheduled incremental personal reflection failed.", { cause }).pipe(

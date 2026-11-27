@@ -251,6 +251,7 @@ const buildHarness = (input: {
 
   const serverSettingsMock = {
     getSettings: Effect.succeed({
+      enablePersonalAgent: true,
       defaultModelSelection:
         input.defaultModelSelection === undefined ? null : input.defaultModelSelection,
       textGenerationModelSelection: defaultSettingsModel,

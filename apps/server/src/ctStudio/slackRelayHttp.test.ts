@@ -46,6 +46,9 @@ describe("slackRelayHttp", () => {
       reconnect: () => Effect.succeed(makeSnapshot()),
       sendDraft: () => Effect.succeed(makeSnapshot()),
       discardDraft: () => Effect.succeed(makeSnapshot()),
+      listChannels: () => Effect.die("unused"),
+      listUsers: () => Effect.die("unused"),
+      sendSlackMessage: () => Effect.die("unused"),
     });
     const mockAuthLayer = Layer.succeed(EnvironmentAuth.EnvironmentAuth, {
       authenticateHttpRequest: () =>

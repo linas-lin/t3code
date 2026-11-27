@@ -2,6 +2,7 @@ import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import {
   HttpClient,
   HttpClientRequest,
@@ -27,6 +28,7 @@ import {
 import * as PluginService from "./PluginService.ts";
 
 const ROUTE_PREFIX = "/api/plugins";
+const isPluginError = Schema.is(PluginError);
 
 const ALLOWED_CT_METHOD_OVERRIDES = new Set(["PUT", "PATCH", "DELETE"]);
 
@@ -371,7 +373,7 @@ export const layer = Layer.unwrap(
         const request = yield* HttpServerRequest.HttpServerRequest;
         const body = yield* request.json.pipe(Effect.orElseSucceed(() => null));
         const parsed = parseInstallRequest(body);
-        if (parsed instanceof PluginError) {
+        if (isPluginError(parsed)) {
           return pluginErrorResponse(parsed);
         }
         return yield* service.install(parsed).pipe(
@@ -528,7 +530,7 @@ export const layer = Layer.unwrap(
     );
 
     const apiProxyHandler = proxyToPluginBackend(service, baseHttpClient);
-    const apiMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] as const;
+    const apiMethods = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
     const apiWildcardRoutes = apiMethods.map((method) =>
       HttpRouter.add(method, `${ROUTE_PREFIX}/:id/api/*`, apiProxyHandler),
     );

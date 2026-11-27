@@ -109,23 +109,22 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       data-panel-layout-controls
     >
       {showCodeExplorerControl ? (
-        <Tooltip>
-          <TooltipTrigger render={<span className="flex shrink-0" />}>
-            <Toggle
-              className="shrink-0 [-webkit-app-region:no-drag]"
-              pressed={codeExplorerOpen}
-              onPressedChange={handleToggleCodeExplorer}
-              aria-label={gt("Code Explorer")}
-              variant="ghost"
-              size="sm"
-            >
-              <Code2Icon className="size-4" />
-            </Toggle>
-          </TooltipTrigger>
-          <TooltipPopup side="bottom">
-            {gt("Code Explorer ({shortcut})", { shortcut: codeExplorerShortcutLabel })}
-          </TooltipPopup>
-        </Tooltip>
+        <SharedTooltipTrigger
+          render={<span className="flex shrink-0" />}
+          label={gt("Code Explorer ({shortcut})", { shortcut: codeExplorerShortcutLabel })}
+          side="bottom"
+        >
+          <Toggle
+            className="shrink-0 [-webkit-app-region:no-drag]"
+            pressed={codeExplorerOpen}
+            onPressedChange={handleToggleCodeExplorer}
+            aria-label={gt("Code Explorer")}
+            variant="ghost"
+            size="sm"
+          >
+            <Code2Icon className="size-4" />
+          </Toggle>
+        </SharedTooltipTrigger>
       ) : null}
       {showThreadPanelControl ? threadPanelControl : null}
       {showTerminalControl ? (

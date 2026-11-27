@@ -119,9 +119,11 @@ async function fetchSlackBinaryWithRedirects(
       ? { Authorization: `Bearer ${token}` }
       : {};
     const controller = new AbortController();
+    // @effect-diagnostics-next-line globalTimers:off -- abort timeout for manual redirect fetch.
     const timer = setTimeout(() => controller.abort(), SLACK_IMAGE_DOWNLOAD_TIMEOUT_MS);
     let res: Response;
     try {
+      // @effect-diagnostics-next-line globalFetch:off -- manual redirect hop helper outside Effect.
       res = await fetch(currentUrl, {
         method: "GET",
         headers,

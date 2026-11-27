@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFSP from "node:fs/promises";
 import {
   CommandId,
@@ -2981,9 +2982,10 @@ const make = Effect.gen(function* () {
         if (requestedWorktreePath !== undefined) {
           if (!isRetryOfAcceptedDelegation) {
             const realPathOf = (path: string) =>
-              Effect.tryPromise(() => NodeFSP.realpath(path)).pipe(
-                Effect.orElseSucceed(() => path),
-              );
+              Effect.tryPromise({
+                try: () => NodeFSP.realpath(path),
+                catch: (cause) => cause,
+              }).pipe(Effect.orElseSucceed(() => path));
             const worktrees = yield* gitDriver.listWorktreePaths(targetProject.workspaceRoot).pipe(
               Effect.flatMap((paths) => Effect.forEach(paths, realPathOf)),
               Effect.orElseSucceed((): ReadonlyArray<string> => []),

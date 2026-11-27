@@ -93,6 +93,7 @@ const makeEligibilityInput = (
 const makeMemoryStub = (
   buildTurnContext: (input: PersonalContextBuildInput) => Effect.Effect<string>,
 ): PersonalMemoryServiceShape => ({
+  isEnabled: () => Effect.succeed(true),
   buildTurnContext,
   searchMemory: () => Effect.die("unexpected searchMemory"),
   addNote: () => Effect.die("unexpected addNote"),

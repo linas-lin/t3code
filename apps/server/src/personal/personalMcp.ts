@@ -128,6 +128,12 @@ export const PersonalToolkit = Toolkit.make(
   PersonalReflectNowTool,
 );
 
+const personalAgentDisabledFailure = () =>
+  new OrchestratorMcpFailure({
+    code: "orchestration_error",
+    message: "Personal Agent is disabled. Enable it in Settings → CT Studio.",
+  });
+
 const requirePersonalMemory = Effect.flatMap(
   Effect.serviceOption(PersonalMemoryService),
   Option.match({
@@ -138,22 +144,27 @@ const requirePersonalMemory = Effect.flatMap(
           message: "Personal memory service is unavailable in this environment.",
         }),
       ),
-    onSome: Effect.succeed,
+    onSome: (service) =>
+      Effect.flatMap(service.isEnabled(), (enabled) =>
+        enabled ? Effect.succeed(service) : Effect.fail(personalAgentDisabledFailure()),
+      ),
   }),
 );
 
-const requirePersonalReflection = Effect.flatMap(
-  Effect.serviceOption(PersonalReflectionService),
-  Option.match({
-    onNone: () =>
-      Effect.fail(
-        new OrchestratorMcpFailure({
-          code: "orchestration_error",
-          message: "Personal reflection service is unavailable in this environment.",
-        }),
-      ),
-    onSome: Effect.succeed,
-  }),
+const requirePersonalReflection = Effect.flatMap(requirePersonalMemory, () =>
+  Effect.flatMap(
+    Effect.serviceOption(PersonalReflectionService),
+    Option.match({
+      onNone: () =>
+        Effect.fail(
+          new OrchestratorMcpFailure({
+            code: "orchestration_error",
+            message: "Personal reflection service is unavailable in this environment.",
+          }),
+        ),
+      onSome: Effect.succeed,
+    }),
+  ),
 );
 
 const toServiceFailure = (err: { readonly message: string }) =>

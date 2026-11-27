@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { T, useGT } from "gt-react";
 import { useState } from "react";
 
+import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
@@ -19,6 +20,8 @@ export function CtStudioSettingsSection() {
   const baseUrl = useCtStudioStore((state) => state.baseUrl);
   const setBaseUrl = useCtStudioStore((state) => state.setBaseUrl);
   const sidebarFocusTopEnabled = useSidebarFocusTopEnabled();
+  const personalAgentEnabled = usePrimarySettings((settings) => settings.enablePersonalAgent);
+  const updatePrimarySettings = useUpdatePrimarySettings();
 
   const [urlDraft, setUrlDraft] = useState(baseUrl);
   const [urlError, setUrlError] = useState<string | null>(null);
@@ -134,6 +137,25 @@ export function CtStudioSettingsSection() {
             checked={sidebarFocusTopEnabled}
             onCheckedChange={(checked) => writeSidebarFocusTopEnabled(Boolean(checked))}
             aria-label={gt("Show active & unread threads at top")}
+          />
+        }
+      />
+      <SettingsRow
+        id="ct-studio-personal-agent"
+        title={gt("Personal Agent")}
+        description={
+          <T>
+            Enable cross-thread personal memory injection, personal memory MCP tools, and scheduled
+            background reflection. Disabled by default.
+          </T>
+        }
+        control={
+          <Switch
+            checked={personalAgentEnabled}
+            onCheckedChange={(checked) =>
+              void updatePrimarySettings({ enablePersonalAgent: Boolean(checked) })
+            }
+            aria-label={gt("Personal Agent")}
           />
         }
       />

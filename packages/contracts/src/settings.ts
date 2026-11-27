@@ -1445,6 +1445,8 @@ export const ServerSettings = Schema.Struct({
   enableAgentBrowserAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   /** Lets clients reach this machine's loopback ports over `/api/preview/tunnel`. */
   enablePreviewTunnel: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /** Enables native personal agent memory context injection, MCP tools, and background reflection. */
+  enablePersonalAgent: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   cloudSpeechCredentials: CloudSpeechCredentials.pipe(
     Schema.withDecodingDefault(Effect.succeed({ openai: "", xai: "", openrouter: "" })),
   ),
@@ -1915,6 +1917,7 @@ export const ServerSettingsPatch = Schema.Struct({
   requireConnectDeviceApproval: Schema.optionalKey(Schema.Boolean),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   enablePreviewTunnel: Schema.optionalKey(Schema.Boolean),
+  enablePersonalAgent: Schema.optionalKey(Schema.Boolean),
   cloudSpeechCredentials: Schema.optionalKey(
     Schema.Struct({
       openai: Schema.optionalKey(SettingsSecretValue),

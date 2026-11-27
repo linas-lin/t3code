@@ -2,11 +2,13 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Semaphore from "effect/Semaphore";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ServerConfig from "../config.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { buildPersonalContextBlock } from "./personalContext.ts";
 import { derivePersonalPaths } from "./personalPaths.ts";
 import { createPersonalStore } from "./personalStore.ts";
@@ -26,6 +28,8 @@ import type {
 } from "./personalTypes.ts";
 
 export interface PersonalMemoryServiceShape {
+  /** Returns whether Personal Agent is enabled in server settings (defaults to false). */
+  readonly isEnabled: () => Effect.Effect<boolean>;
   /** Builds the bounded `<personal_context>` prompt block. Degrades to `""` on any failure. */
   readonly buildTurnContext: (input: PersonalContextBuildInput) => Effect.Effect<string>;
   readonly searchMemory: (
@@ -60,6 +64,7 @@ export class PersonalMemoryService extends Context.Service<
 
 const make = Effect.gen(function* () {
   const { baseDir } = yield* ServerConfig.ServerConfig;
+  const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -68,6 +73,16 @@ const make = Effect.gen(function* () {
   const paths = derivePersonalPaths(baseDir, path);
   const store = createPersonalStore({ paths, fs, path, spawner });
   let initialized = false;
+
+  const isEnabled = Effect.fn("PersonalMemoryService.isEnabled")(function* () {
+    if (Option.isNone(serverSettings)) {
+      return true;
+    }
+    return yield* serverSettings.value.getSettings.pipe(
+      Effect.map((settings) => settings.enablePersonalAgent),
+      Effect.orElseSucceed(() => false),
+    );
+  });
 
   const ensureReady = Effect.fn("PersonalMemoryService.ensureReady")(function* () {
     if (initialized) {
@@ -88,6 +103,9 @@ const make = Effect.gen(function* () {
     input: PersonalContextBuildInput,
   ) {
     return yield* Effect.gen(function* () {
+      if (!(yield* isEnabled())) {
+        return "";
+      }
       yield* ensureReady();
       const state = yield* store.readState();
       if (state.optOutThreadIds.includes(input.threadId)) {
@@ -208,6 +226,7 @@ const make = Effect.gen(function* () {
   );
 
   return PersonalMemoryService.of({
+    isEnabled,
     buildTurnContext,
     searchMemory,
     addNote,

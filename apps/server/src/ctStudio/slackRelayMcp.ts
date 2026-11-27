@@ -113,7 +113,7 @@ const requireSlackRelay = Effect.flatMap(
     onNone: () =>
       Effect.fail(
         new OrchestratorMcpFailure({
-          code: "unavailable",
+          code: "provider_unavailable",
           message: "CT Code Slack Relay service is unavailable in this environment.",
         }),
       ),
